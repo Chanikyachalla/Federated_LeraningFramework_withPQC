@@ -1,10 +1,11 @@
 """
 Post-Quantum Cryptography Layer using ML-KEM (Kyber) and ML-DSA (Dilithium)
-Requires: pip install liboqs-python
+Requires: pip install liboqs-python cryptography
 """
 
 import pickle
 import time
+import os
 from typing import Tuple, Dict, Any
 import torch
 import numpy as np
@@ -17,6 +18,14 @@ except ImportError:
     PQC_AVAILABLE = False
     if PQC_ENABLED:
         print("WARNING: liboqs-python not available. Install with: pip install liboqs-python")
+
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    AES_AVAILABLE = True
+except ImportError:
+    AES_AVAILABLE = False
+    if PQC_ENABLED:
+        print("WARNING: cryptography not available. Install with: pip install cryptography")
 
 
 class PostQuantumCrypto:
@@ -37,6 +46,12 @@ class PostQuantumCrypto:
         self.ml_dsa_variant = ml_dsa_variant
         self.kem = None
         self.sig = None
+        
+        # Store generated keys for reuse
+        self.sig_pub_key = None
+        self.sig_sec_key = None
+        self.kem_pub_key = None
+        self.kem_sec_key = None
         
         if PQC_AVAILABLE:
             self._initialize_algorithms()
@@ -62,8 +77,13 @@ class PostQuantumCrypto:
             return self._mock_generate_keypair()
         
         try:
-            public_key = self.kem.generate_keys()
+            public_key = self.kem.generate_keypair()
             secret_key = self.kem.export_secret_key()
+            
+            # Store for later use
+            self.kem_pub_key = public_key
+            self.kem_sec_key = secret_key
+            
             return public_key, secret_key
         except Exception as e:
             print(f"Error generating KEM keypair: {e}")
@@ -72,6 +92,7 @@ class PostQuantumCrypto:
     def generate_sig_keypair(self) -> Tuple[bytes, bytes]:
         """
         Generate ML-DSA (Dilithium) keypair
+        Keeps Signature instance with loaded keys for signing
         
         Returns:
             (public_key, secret_key)
@@ -80,10 +101,17 @@ class PostQuantumCrypto:
             return self._mock_generate_keypair()
         
         try:
-            public_key = self.sig.generate_keys()
+            public_key = self.sig.generate_keypair()
             secret_key = self.sig.export_secret_key()
+            
+            # Store for reference
+            self.sig_pub_key = public_key
+            self.sig_sec_key = secret_key
+            
             return public_key, secret_key
         except Exception as e:
+            print(f"Error generating signature keypair: {e}")
+            return self._mock_generate_keypair()
             print(f"Error generating signature keypair: {e}")
             return self._mock_generate_keypair()
     
@@ -108,13 +136,13 @@ class PostQuantumCrypto:
             print(f"Error in encapsulation: {e}")
             return self._mock_encapsulate()
     
-    def decapsulate(self, ciphertext: bytes, secret_key: bytes) -> bytes:
+    def decapsulate(self, ciphertext: bytes, secret_key: bytes = None) -> bytes:
         """
         Decapsulate shared secret (KEM)
         
         Args:
             ciphertext: Ciphertext from sender
-            secret_key: Recipient's ML-KEM secret key
+            secret_key: Ignored (kept for API compatibility)
         
         Returns:
             shared_secret
@@ -123,21 +151,21 @@ class PostQuantumCrypto:
             return self._mock_shared_secret()
         
         try:
-            kem_instance = oqs.KeyEncapsulation(self.ml_kem_variant)
-            kem_instance.import_secret_key(secret_key)
-            shared_secret = kem_instance.decap_secret(ciphertext)
+            # Use the pre-loaded kem instance (keys were loaded during generate_kem_keypair)
+            shared_secret = self.kem.decap_secret(ciphertext)
             return shared_secret
         except Exception as e:
             print(f"Error in decapsulation: {e}")
             return self._mock_shared_secret()
     
-    def sign(self, message: bytes, secret_key: bytes) -> bytes:
+    def sign(self, message: bytes, secret_key: bytes = None) -> bytes:
         """
         Sign a message (ML-DSA)
+        Uses pre-loaded Signature instance with generated keys
         
         Args:
             message: Message to sign
-            secret_key: ML-DSA secret key
+            secret_key: Ignored (kept for API compatibility)
         
         Returns:
             Signature
@@ -146,9 +174,8 @@ class PostQuantumCrypto:
             return self._mock_signature()
         
         try:
-            sig_instance = oqs.Signature(self.ml_dsa_variant)
-            sig_instance.import_secret_key(secret_key)
-            signature = sig_instance.sign(message)
+            # Use the pre-loaded sig instance (keys were loaded during generate_sig_keypair)
+            signature = self.sig.sign(message)
             return signature
         except Exception as e:
             print(f"Error in signing: {e}")
@@ -171,9 +198,12 @@ class PostQuantumCrypto:
         
         try:
             sig_instance = oqs.Signature(self.ml_dsa_variant)
-            sig_instance.import_public_key(public_key)
-            sig_instance.verify(message, signature)
-            return True
+            is_valid = sig_instance.verify(
+                message,
+                signature,
+                public_key
+            )
+            return is_valid
         except Exception:
             return False
     
@@ -203,38 +233,145 @@ class PostQuantumCrypto:
         return np.random.bytes(2420)
 
 
+def encrypt_update(data: bytes, shared_secret: bytes) -> Tuple[bytes, bytes]:
+    """
+    Encrypt model update using AES-GCM
+    
+    Args:
+        data: Serialized model state dict
+        shared_secret: Shared secret from ML-KEM
+    
+    Returns:
+        (nonce, ciphertext)
+    """
+    if not AES_AVAILABLE:
+        # Fallback to XOR encryption
+        nonce = os.urandom(12)
+        key_repeated = (shared_secret * ((len(data) // len(shared_secret)) + 1))[:len(data)]
+        ciphertext = bytes(a ^ b for a, b in zip(data, key_repeated))
+        return nonce, ciphertext
+    
+    try:
+        # Use first 32 bytes of shared secret as AES key
+        key = shared_secret[:32]
+        
+        # Generate random nonce (12 bytes for GCM)
+        nonce = os.urandom(12)
+        
+        # Create cipher
+        aesgcm = AESGCM(key)
+        
+        # Encrypt
+        ciphertext = aesgcm.encrypt(nonce, data, None)
+        
+        return nonce, ciphertext
+    except Exception as e:
+        print(f"Error in AES-GCM encryption: {e}")
+        # Fallback
+        nonce = os.urandom(12)
+        key_repeated = (shared_secret * ((len(data) // len(shared_secret)) + 1))[:len(data)]
+        ciphertext = bytes(a ^ b for a, b in zip(data, key_repeated))
+        return nonce, ciphertext
+
+
+def decrypt_update(nonce: bytes, ciphertext: bytes, shared_secret: bytes) -> bytes:
+    """
+    Decrypt model update using AES-GCM
+    
+    Args:
+        nonce: Nonce used during encryption
+        ciphertext: Encrypted model state dict
+        shared_secret: Shared secret from ML-KEM
+    
+    Returns:
+        Decrypted data
+    """
+    if not AES_AVAILABLE:
+        # Fallback to XOR decryption
+        key_repeated = (shared_secret * ((len(ciphertext) // len(shared_secret)) + 1))[:len(ciphertext)]
+        plaintext = bytes(a ^ b for a, b in zip(ciphertext, key_repeated))
+        return plaintext
+    
+    try:
+        # Use first 32 bytes of shared secret as AES key
+        key = shared_secret[:32]
+        
+        # Create cipher
+        aesgcm = AESGCM(key)
+        
+        # Decrypt
+        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+        
+        return plaintext
+    except Exception as e:
+        print(f"Error in AES-GCM decryption: {e}")
+        # Fallback
+        key_repeated = (shared_secret * ((len(ciphertext) // len(shared_secret)) + 1))[:len(ciphertext)]
+        plaintext = bytes(a ^ b for a, b in zip(ciphertext, key_repeated))
+        return plaintext
+
+
 class EncryptedUpdate:
     """Container for encrypted model updates with signatures"""
     
-    def __init__(self, client_id: int, ciphertext: bytes, signature: bytes, 
-                 kem_ciphertext: bytes = None):
+    def __init__(self, client_id: int, encrypted_update: bytes, signature: bytes, 
+                 kem_ciphertext: bytes = None, nonce: bytes = None):
         """
         Args:
             client_id: Client ID
-            ciphertext: Encrypted update data
+            encrypted_update: Encrypted model state dict
             signature: ML-DSA signature
             kem_ciphertext: ML-KEM ciphertext for key encapsulation
+            nonce: Nonce used in AES-GCM encryption
         """
         self.client_id = client_id
-        self.ciphertext = ciphertext
+        self.encrypted_update = encrypted_update
         self.signature = signature
         self.kem_ciphertext = kem_ciphertext
+        self.nonce = nonce
         self.timestamp = time.time()
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {
             'client_id': self.client_id,
-            'ciphertext': self.ciphertext,
+            'encrypted_update': self.encrypted_update,
             'signature': self.signature,
             'kem_ciphertext': self.kem_ciphertext,
+            'nonce': self.nonce,
             'timestamp': self.timestamp
         }
 
 
+def serialize_state_dict(state_dict) -> bytes:
+    """
+    Serialize model state dict to bytes
+    
+    Args:
+        state_dict: Model state dict
+    
+    Returns:
+        Serialized bytes
+    """
+    return pickle.dumps(state_dict)
+
+
+def deserialize_state_dict(data: bytes):
+    """
+    Deserialize model state dict from bytes
+    
+    Args:
+        data: Serialized bytes
+    
+    Returns:
+        Model state dict
+    """
+    return pickle.loads(data)
+
+
 def serialize_update(update: torch.Tensor) -> bytes:
     """
-    Serialize model update to bytes
+    Serialize model update to bytes (legacy - for backward compatibility)
     
     Args:
         update: Model update tensor

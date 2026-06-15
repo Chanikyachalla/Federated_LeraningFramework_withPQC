@@ -10,7 +10,8 @@ import time
 from typing import List, Dict, Tuple, Optional
 from model import create_model, CIFAR10CNN
 from defenses import create_defense
-from pqc import PostQuantumCrypto, serialize_update, deserialize_update, EncryptedUpdate
+from pqc import PostQuantumCrypto, serialize_update, deserialize_update, EncryptedUpdate, \
+    encrypt_update, decrypt_update, serialize_state_dict, deserialize_state_dict
 from attacks import AttackManager
 from config import *
 
@@ -164,30 +165,34 @@ class FLClient:
         
         signature = None
         kem_ciphertext = None
-        ciphertext = update_bytes
-        
-        if self.pqc and SIGN_MESSAGE:
-            # Sign the update
-            sig_start = time.time()
-            signature = self.pqc.sign(update_bytes, self.sig_sec_key)
-            sig_time = time.time() - sig_start
-            self.metrics['signature_time'].append(sig_time)
+        encrypted_update = update_bytes
+        nonce = None
         
         if self.pqc and ENCRYPT_MESSAGE and server_kem_pub_key:
-            # Encrypt using ML-KEM
+            # Encapsulate to get shared secret
             enc_start = time.time()
             kem_ciphertext, shared_secret = self.pqc.encapsulate(server_kem_pub_key)
-            ciphertext = self._xor_encrypt(update_bytes, shared_secret)
+            
+            # Encrypt using AES-GCM
+            nonce, encrypted_update = encrypt_update(update_bytes, shared_secret)
             enc_time = time.time() - enc_start
             self.metrics['encryption_time'].append(enc_time)
+        
+        if self.pqc and SIGN_MESSAGE:
+            # Sign the encrypted update (secret key stored in pqc instance)
+            sig_start = time.time()
+            signature = self.pqc.sign(encrypted_update)
+            sig_time = time.time() - sig_start
+            self.metrics['signature_time'].append(sig_time)
         
         total_time = time.time() - start_time
         
         return EncryptedUpdate(
             client_id=self.client_id,
-            ciphertext=ciphertext,
+            encrypted_update=encrypted_update,
             signature=signature,
-            kem_ciphertext=kem_ciphertext
+            kem_ciphertext=kem_ciphertext,
+            nonce=nonce
         )
     
     @staticmethod
@@ -267,16 +272,17 @@ class FLServer:
         
         for enc_update in encrypted_updates:
             client_id = enc_update.client_id
-            ciphertext = enc_update.ciphertext
+            encrypted_data = enc_update.encrypted_update
             signature = enc_update.signature
             kem_ciphertext = enc_update.kem_ciphertext
+            nonce = enc_update.nonce
             
             # Decrypt
-            decrypted_data = ciphertext
-            if self.pqc and ENCRYPT_MESSAGE and kem_ciphertext:
+            decrypted_data = encrypted_data
+            if self.pqc and ENCRYPT_MESSAGE and kem_ciphertext and nonce:
                 dec_start = time.time()
-                shared_secret = self.pqc.decapsulate(kem_ciphertext, self.kem_sec_key)
-                decrypted_data = self._xor_decrypt(ciphertext, shared_secret)
+                shared_secret = self.pqc.decapsulate(kem_ciphertext)
+                decrypted_data = decrypt_update(nonce, encrypted_data, shared_secret)
                 dec_time = time.time() - dec_start
                 self.metrics['decryption_time'].append(dec_time)
             
@@ -286,7 +292,7 @@ class FLServer:
                 ver_start = time.time()
                 client_pub_key = self.client_public_keys.get(client_id)
                 if client_pub_key:
-                    is_valid = self.pqc.verify(decrypted_data, signature, client_pub_key)
+                    is_valid = self.pqc.verify(encrypted_data, signature, client_pub_key)
                 ver_time = time.time() - ver_start
                 self.metrics['verification_time'].append(ver_time)
             
