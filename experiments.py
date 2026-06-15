@@ -1,0 +1,359 @@
+"""
+Experiments: All 7 experimental scenarios
+"""
+
+import torch
+import numpy as np
+import time
+from pathlib import Path
+from typing import Dict
+
+from model import create_model
+from dataset import get_cifar10_dataset
+from federated_learning import FLClient, FLServer, FederatedLearner
+from attacks import AttackManager
+from metrics import MetricsTracker, ComparisonAnalyzer
+from config import *
+
+
+class ExperimentRunner:
+    """Runs federated learning experiments"""
+    
+    def __init__(self, experiment_config: Dict):
+        """
+        Initialize experiment
+        
+        Args:
+            experiment_config: Configuration for this experiment
+        """
+        self.config = experiment_config
+        self.experiment_name = experiment_config['name']
+        self.metrics_tracker = MetricsTracker(self.experiment_name)
+        
+        print(f"\n{'='*60}")
+        print(f"Initializing Experiment: {self.experiment_name}")
+        print(f"{'='*60}")
+    
+    def setup(self):
+        """Setup clients, server, and attack manager"""
+        
+        # Create global model
+        global_model = create_model(device=DEVICE)
+        
+        # Load dataset
+        print("Loading CIFAR-10 dataset...")
+        dataset = get_cifar10_dataset()
+        
+        # Create attack manager
+        apply_byzantine = self.config.get('byzantine_enabled', False)
+        apply_data_poisoning = self.config.get('data_poisoning_enabled', False)
+        
+        attack_manager = None
+        if apply_byzantine or apply_data_poisoning:
+            attack_manager = AttackManager(
+                num_clients=NUM_CLIENTS,
+                num_byzantine=BYZANTINE_CLIENTS,
+                byzantine_scale=BYZANTINE_SCALE,
+                poison_ratio=POISON_RATIO
+            )
+            byzantine_clients = attack_manager.get_byzantine_clients()
+            print(f"Byzantine clients: {byzantine_clients}")
+        
+        # Create clients
+        print(f"Creating {NUM_CLIENTS} clients...")
+        clients = []
+        for client_id in range(NUM_CLIENTS):
+            # Create model copy for client
+            client_model = create_model(device=DEVICE)
+            client_model.load_state_dict(global_model.state_dict())
+            
+            # Create dataloader for client
+            client_dataset = dataset.get_client_dataloader(
+                client_id,
+                batch_size=BATCH_SIZE,
+                train=True,
+                shuffle=True
+            )
+            
+            # Create client
+            client = FLClient(
+                client_id=client_id,
+                model=client_model,
+                dataset=client_dataset,
+                attack_manager=attack_manager,
+                device=DEVICE
+            )
+            clients.append(client)
+        
+        # Create server
+        defense_method = self.config.get('defense', 'fedavg')
+        server = FLServer(
+            model=global_model,
+            defense_name=defense_method,
+            device=DEVICE
+        )
+        
+        # Register client public keys
+        for client in clients:
+            server.register_client(client.client_id, client.get_public_key())
+        
+        # Create federated learner
+        learner = FederatedLearner(clients, server)
+        
+        # Get test loader
+        test_loader = dataset.get_global_testloader(batch_size=BATCH_SIZE)
+        
+        return learner, test_loader, dataset, attack_manager
+    
+    def run(self):
+        """Run the experiment"""
+        # Setup
+        learner, test_loader, dataset, attack_manager = self.setup()
+        
+        # Training configuration
+        apply_byzantine = self.config.get('byzantine_enabled', False)
+        apply_data_poisoning = self.config.get('data_poisoning_enabled', False)
+        pqc_enabled = self.config.get('pqc_enabled', False)
+        
+        print(f"\nTraining Configuration:")
+        print(f"  Rounds: {NUM_ROUNDS}")
+        print(f"  Local Epochs: {LOCAL_EPOCHS}")
+        print(f"  Batch Size: {BATCH_SIZE}")
+        print(f"  Byzantine Attack: {apply_byzantine}")
+        print(f"  Data Poisoning: {apply_data_poisoning}")
+        print(f"  PQC Enabled: {pqc_enabled}")
+        print(f"  Defense: {self.config.get('defense', 'fedavg')}")
+        
+        # Training loop
+        print("\nStarting training...")
+        start_time = time.time()
+        
+        for round_num in range(NUM_ROUNDS):
+            # Perform round
+            round_stats = learner.perform_round(
+                round_num=round_num,
+                test_loader=test_loader,
+                apply_data_poisoning=apply_data_poisoning,
+                apply_model_poisoning=apply_byzantine
+            )
+            
+            # Track metrics
+            self.metrics_tracker.add_round(round_num, round_stats)
+            
+            # Print progress
+            if (round_num + 1) % LOG_INTERVAL == 0:
+                acc = round_stats.get('test_accuracy', 0)
+                loss = round_stats.get('test_loss', 0)
+                avg_loss = np.mean(round_stats.get('client_losses', [0]))
+                print(f"Round {round_num + 1}/{NUM_ROUNDS} | "
+                      f"Loss: {loss:.4f} | "
+                      f"Train Loss: {avg_loss:.4f} | "
+                      f"Accuracy: {acc:.2f}%")
+        
+        total_time = time.time() - start_time
+        
+        # Print summary
+        print(f"\n{'='*60}")
+        print(f"Experiment completed in {total_time:.2f} seconds")
+        print(f"{'='*60}")
+        
+        self.metrics_tracker.print_summary()
+        
+        # Save results
+        self.metrics_tracker.save_metrics()
+        self.metrics_tracker.plot_results()
+        
+        return self.metrics_tracker
+
+
+def run_experiment_1():
+    """Experiment 1: Clean FL + FedAvg"""
+    config = {
+        'name': 'Exp1: Clean FL + FedAvg',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': False,
+        'defense': 'fedavg',
+        'pqc_enabled': False
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_2():
+    """Experiment 2: Byzantine Attack + FedAvg"""
+    config = {
+        'name': 'Exp2: Byzantine Attack + FedAvg',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'fedavg',
+        'pqc_enabled': False
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_3():
+    """Experiment 3: Byzantine Attack + FoolsGold"""
+    config = {
+        'name': 'Exp3: Byzantine Attack + FoolsGold',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'foolsgold',
+        'pqc_enabled': False
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_4():
+    """Experiment 4: Data Poisoning + FedAvg"""
+    config = {
+        'name': 'Exp4: Data Poisoning + FedAvg',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'fedavg',
+        'pqc_enabled': False
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_5():
+    """Experiment 5: Data Poisoning + FoolsGold"""
+    config = {
+        'name': 'Exp5: Data Poisoning + FoolsGold',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'foolsgold',
+        'pqc_enabled': False
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_6():
+    """Experiment 6: Byzantine Attack + PQC + FedAvg"""
+    config = {
+        'name': 'Exp6: Byzantine Attack + PQC + FedAvg',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'fedavg',
+        'pqc_enabled': True
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_7():
+    """Experiment 7: Byzantine Attack + PQC + FoolsGold"""
+    config = {
+        'name': 'Exp7: Byzantine Attack + PQC + FoolsGold',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'foolsgold',
+        'pqc_enabled': True
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_8():
+    """Experiment 8: Byzantine Attack + Manhattan Distance"""
+    config = {
+        'name': 'Exp8: Byzantine Attack + Manhattan Distance',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'manhattan',
+        'pqc_enabled': False
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_9():
+    """Experiment 9: Data Poisoning + Manhattan Distance"""
+    config = {
+        'name': 'Exp9: Data Poisoning + Manhattan Distance',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'manhattan',
+        'pqc_enabled': False
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_10():
+    """Experiment 10: Byzantine Attack + PQC + Manhattan Distance"""
+    config = {
+        'name': 'Exp10: Byzantine Attack + PQC + Manhattan Distance',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'manhattan',
+        'pqc_enabled': True
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_all_experiments():
+    """Run all 10 experiments"""
+    print("\n" + "="*80)
+    print("RUNNING ALL EXPERIMENTS FOR POST-QUANTUM SECURE FEDERATED LEARNING")
+    print("="*80)
+    
+    all_metrics = {}
+    
+    experiments = [
+        ("Exp1", run_experiment_1),
+        ("Exp2", run_experiment_2),
+        ("Exp3", run_experiment_3),
+        ("Exp4", run_experiment_4),
+        ("Exp5", run_experiment_5),
+        ("Exp6", run_experiment_6),
+        ("Exp7", run_experiment_7),
+        ("Exp8", run_experiment_8),
+        ("Exp9", run_experiment_9),
+        ("Exp10", run_experiment_10),
+    ]
+    
+    for exp_name, exp_func in experiments:
+        try:
+            print(f"\n\nRunning {exp_name}...")
+            metrics = exp_func()
+            all_metrics[exp_name] = metrics.metrics
+        except Exception as e:
+            print(f"Error running {exp_name}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Compare results
+    print("\n" + "="*80)
+    print("EXPERIMENT COMPARISON")
+    print("="*80)
+    
+    analyzer = ComparisonAnalyzer()
+    for exp_name, metrics in all_metrics.items():
+        analyzer.add_experiment(exp_name, metrics)
+    
+    # Print comparisons
+    print("\nAccuracy Comparison:")
+    accuracy_comparison = analyzer.compare_accuracy()
+    for exp_name, results in accuracy_comparison.items():
+        print(f"  {exp_name:30s}: Final={results['final']:.2f}%, "
+              f"Best={results['best']:.2f}%, Mean={results['mean']:.2f}%")
+    
+    print("\nAggregation Time Comparison:")
+    time_comparison = analyzer.compare_time()
+    for exp_name, results in time_comparison.items():
+        print(f"  {exp_name:30s}: Avg={results['mean']:.4f}s, "
+              f"Total={results['total']:.2f}s")
+    
+    # Plot comparison
+    analyzer.plot_comparison()
+    
+    print("\n" + "="*80)
+    print("ALL EXPERIMENTS COMPLETED")
+    print("="*80)
+    
+    return all_metrics
