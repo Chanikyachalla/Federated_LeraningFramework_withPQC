@@ -1,5 +1,5 @@
 """
-Defense Mechanisms: FedAvg and FoolsGold
+Defense Mechanisms: FedAvg, Krum, and ManhattanDistance
 """
 
 import torch
@@ -47,156 +47,131 @@ class FedAvgDefense:
         return aggregated
 
 
-class FoolsGoldDefense:
+class KrumDefense:
     """
-    FoolsGold Defense: Detects colluding malicious clients
-    
-    Algorithm:
-    1. Store historical updates (cosine similarity matrix)
-    2. Compute update similarities
-    3. Identify potentially malicious clients
-    4. Reduce their contribution in aggregation
+    Krum Defense: Byzantine-resilient aggregation (Blanchard et al., 2017)
+
+    Algorithm (Multi-Krum):
+    1. For each update i, compute its score = sum of squared L2 distances to
+       its (n - f - 2) nearest neighbours (excluding itself).
+    2. Select the m updates with the lowest Krum scores.
+    3. Return the average of those m selected updates.
+
+    With m == 1 this is standard (single) Krum;
+    with m > 1 it is Multi-Krum, which has better accuracy at a slight
+    reduction in Byzantine-resilience.
     """
-    
-    def __init__(self, history_size: int = FOOLSGOLD_HISTORY_SIZE,
-                 similarity_threshold: float = FOOLSGOLD_SIMILARITY_THRESHOLD):
+
+    def __init__(self,
+                 num_byzantine: int = KRUM_NUM_BYZANTINE,
+                 multi_k: int = KRUM_MULTI_K):
         """
-        Initialize FoolsGold defense
-        
+        Initialize Krum defense.
+
         Args:
-            history_size: Number of rounds to keep history
-            similarity_threshold: Threshold for similarity-based detection
+            num_byzantine: Expected maximum number of Byzantine clients (f).
+            multi_k:       Number of updates to select for Multi-Krum (m).
+                           Set to 1 for standard (single) Krum.
         """
-        self.name = 'FoolsGold'
-        self.history_size = history_size
-        self.similarity_threshold = similarity_threshold
-        self.history = deque(maxlen=history_size)
-        self.client_scores = {}
-    
-    def _compute_cosine_similarity(self, v1: torch.Tensor, 
-                                   v2: torch.Tensor) -> float:
-        """Compute cosine similarity between two vectors"""
-        # Flatten vectors
-        v1_flat = v1.view(-1)
-        v2_flat = v2.view(-1)
-        
-        # Compute cosine similarity
-        dot_product = torch.sum(v1_flat * v2_flat)
-        norm_v1 = torch.sqrt(torch.sum(v1_flat ** 2))
-        norm_v2 = torch.sqrt(torch.sum(v2_flat ** 2))
-        
-        if norm_v1 == 0 or norm_v2 == 0:
-            return 0.0
-        
-        cosine_sim = dot_product / (norm_v1 * norm_v2)
-        return float(cosine_sim.cpu().detach().numpy())
-    
-    def compute_similarity_matrix(self, updates: List[torch.Tensor]) -> np.ndarray:
+        self.name = 'Krum'
+        self.num_byzantine = num_byzantine
+        self.multi_k = multi_k
+
+    def _squared_l2_distance(self, v1: torch.Tensor, v2: torch.Tensor) -> float:
+        """Compute squared Euclidean distance between two flattened tensors."""
+        diff = v1.view(-1) - v2.view(-1)
+        return float(torch.sum(diff ** 2).cpu().item())
+
+    def compute_krum_scores(self, updates: List[torch.Tensor]) -> np.ndarray:
         """
-        Compute similarity matrix between all updates
-        
+        Compute Krum score for each update.
+
+        The score for update i is the sum of squared distances to its
+        (n - f - 2) nearest neighbours.
+
         Args:
-            updates: List of model updates
-        
+            updates: List of model updates (length n).
+
         Returns:
-            Similarity matrix (num_clients x num_clients)
+            scores: 1-D numpy array of shape (n,).
         """
-        num_updates = len(updates)
-        similarity_matrix = np.zeros((num_updates, num_updates))
-        
-        for i in range(num_updates):
-            for j in range(num_updates):
-                sim = self._compute_cosine_similarity(updates[i], updates[j])
-                similarity_matrix[i, j] = sim
-        
-        return similarity_matrix
-    
-    def detect_adversaries(self, updates: List[torch.Tensor],
-                          similarity_matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Detect potentially malicious clients
-        
-        Args:
-            updates: List of model updates
-            similarity_matrix: Similarity matrix
-        
-        Returns:
-            (scores, suspicious_indices)
-        """
-        num_updates = len(updates)
-        
-        # Compute score for each update based on similarity to others
-        # High similarity to many others might indicate collusion
-        scores = np.zeros(num_updates)
-        
-        for i in range(num_updates):
-            # Count how many updates are similar to this one
-            similar_count = np.sum(
-                similarity_matrix[i] >= self.similarity_threshold
-            )
-            scores[i] = similar_count / num_updates
-        
-        # Detect suspicious clients (high similarity but potentially attacking)
-        suspicious_indices = np.where(scores > 0.5)[0]
-        
-        return scores, suspicious_indices
-    
+        n = len(updates)
+        f = self.num_byzantine
+        # Number of neighbours to consider
+        num_neighbours = max(n - f - 2, 1)
+
+        # Build full pairwise distance matrix
+        dist_matrix = np.zeros((n, n))
+        for i in range(n):
+            for j in range(i + 1, n):
+                d = self._squared_l2_distance(updates[i], updates[j])
+                dist_matrix[i, j] = d
+                dist_matrix[j, i] = d
+
+        # Krum score = sum of distances to the num_neighbours closest peers
+        scores = np.zeros(n)
+        for i in range(n):
+            # Distances from i to all others (exclude self)
+            dists = np.concatenate([dist_matrix[i, :i], dist_matrix[i, i+1:]])
+            # Sort and take the smallest num_neighbours
+            scores[i] = np.sum(np.sort(dists)[:num_neighbours])
+
+        return scores
+
     def aggregate(self, updates: List[torch.Tensor],
-                 client_ids: List[int] = None) -> Tuple[torch.Tensor, Dict]:
+                  client_ids: List[int] = None) -> Tuple[torch.Tensor, Dict]:
         """
-        Aggregate updates with FoolsGold defense
-        
+        Aggregate updates with Multi-Krum defense.
+
         Args:
-            updates: List of model updates
-            client_ids: Client IDs (optional)
-        
+            updates:    List of model updates.
+            client_ids: Optional list of client IDs (for logging).
+
         Returns:
             (aggregated_update, defense_info)
         """
         if not updates:
             return None, {}
-        
-        # Compute similarity matrix
-        similarity_matrix = self.compute_similarity_matrix(updates)
-        
-        # Detect adversaries
-        scores, suspicious_indices = self.detect_adversaries(updates, similarity_matrix)
-        
-        # Store history
-        self.history.append(similarity_matrix)
-        
-        # Compute weights for aggregation
-        weights = np.ones(len(updates))
-        
-        # Reduce weights for suspicious clients
-        for idx in suspicious_indices:
-            weights[idx] *= 0.5  # Reduce contribution
-        
-        # Normalize weights
-        weights = weights / np.sum(weights)
-        
-        # Aggregate with weighted average
+
+        n = len(updates)
+        # Multi-Krum selects at most (n - num_byzantine) updates
+        m = min(self.multi_k, n - self.num_byzantine)
+        m = max(m, 1)  # Always select at least one
+
+        scores = self.compute_krum_scores(updates)
+
+        # Select the m updates with lowest Krum scores
+        selected_indices = np.argsort(scores)[:m]
+
+        # Average selected updates
         aggregated = None
-        for i, (update, weight) in enumerate(zip(updates, weights)):
+        for idx in selected_indices:
             if aggregated is None:
-                aggregated = weight * update
+                aggregated = updates[idx].clone()
             else:
-                aggregated += weight * update
-        
-        # Store stats
+                aggregated += updates[idx]
+        aggregated = aggregated / m
+
+        selected_ids = (
+            [client_ids[i] for i in selected_indices]
+            if client_ids is not None else selected_indices.tolist()
+        )
+        rejected_ids = (
+            [client_ids[i] for i in range(n) if i not in selected_indices]
+            if client_ids is not None
+            else [i for i in range(n) if i not in selected_indices]
+        )
+
         defense_info = {
-            'similarity_matrix': similarity_matrix,
-            'scores': scores,
-            'suspicious_indices': suspicious_indices,
-            'weights': weights,
-            'num_suspicious': len(suspicious_indices)
+            'krum_scores':       [float(s) for s in scores],
+            'selected_indices':  selected_indices.tolist(),
+            'selected_ids':      [int(x) for x in selected_ids],
+            'rejected_ids':      [int(x) for x in rejected_ids],
+            'num_selected':      int(m),
+            'num_rejected':      int(n - m),
         }
-        
+
         return aggregated, defense_info
-    
-    def update_scores(self, scores: np.ndarray):
-        """Update client scores over time"""
-        self.client_scores = scores
 
 
 class ManhattanDistanceDefense:
@@ -321,46 +296,46 @@ class ManhattanDistanceDefense:
             else:
                 aggregated += weight * update
         
-        # Store stats
+        # Store stats — only JSON-serialisable scalars/lists
         defense_info = {
-            'distances': distances,
-            'median_update': median_update,
-            'outlier_indices': outlier_indices,
-            'weights': weights,
-            'num_outliers': len(outlier_indices),
-            'mean_distance': float(np.mean(distances)),
-            'std_distance': float(np.std(distances))
+            'distances':      [float(d) for d in distances],
+            'outlier_indices': outlier_indices.tolist(),
+            'weights':        [float(w) for w in weights],
+            'num_outliers':   int(len(outlier_indices)),
+            'mean_distance':  float(np.mean(distances)),
+            'std_distance':   float(np.std(distances)),
+            'num_rejected':   int(len(outlier_indices)),
         }
-        
+
         return aggregated, defense_info
 
 
 class AdaptiveDefense:
     """Base class for adaptive defenses that can switch strategies"""
-    
+
     def __init__(self):
         self.defense_methods = {
             'fedavg': FedAvgDefense(),
-            'foolsgold': FoolsGoldDefense(),
+            'krum': KrumDefense(),
             'manhattan': ManhattanDistanceDefense()
         }
         self.current_defense = 'fedavg'
-    
+
     def set_defense(self, defense_name: str):
         """Set current defense method"""
         if defense_name in self.defense_methods:
             self.current_defense = defense_name
         else:
             raise ValueError(f"Unknown defense: {defense_name}")
-    
-    def aggregate(self, updates: List[torch.Tensor], 
-                 client_ids: List[int] = None) -> Tuple[torch.Tensor, Dict]:
+
+    def aggregate(self, updates: List[torch.Tensor],
+                  client_ids: List[int] = None) -> Tuple[torch.Tensor, Dict]:
         """Aggregate using current defense method"""
         defense = self.defense_methods[self.current_defense]
-        
+
         if self.current_defense == 'fedavg':
             return defense.aggregate(updates), {'defense': 'FedAvg'}
-        elif self.current_defense == 'foolsgold':
+        elif self.current_defense == 'krum':
             return defense.aggregate(updates, client_ids)
         elif self.current_defense == 'manhattan':
             return defense.aggregate(updates, client_ids)
@@ -368,18 +343,18 @@ class AdaptiveDefense:
 
 def create_defense(defense_name: str = DEFENSE_METHOD) -> torch.nn.Module:
     """
-    Factory function to create defense mechanism
-    
+    Factory function to create defense mechanism.
+
     Args:
-        defense_name: 'fedavg', 'foolsgold', or 'manhattan'
-    
+        defense_name: 'fedavg', 'krum', or 'manhattan'
+
     Returns:
         Defense instance
     """
     if defense_name == 'fedavg':
         return FedAvgDefense()
-    elif defense_name == 'foolsgold':
-        return FoolsGoldDefense()
+    elif defense_name == 'krum':
+        return KrumDefense()
     elif defense_name == 'manhattan':
         return ManhattanDistanceDefense()
     else:

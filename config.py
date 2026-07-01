@@ -45,12 +45,12 @@ SIGN_MESSAGE = True
 ENCRYPT_MESSAGE = True
 
 # ==================== DEFENSES ====================
-DEFENSE_METHOD = 'fedavg'  # 'fedavg' or 'foolsgold'
+DEFENSE_METHOD = 'fedavg'  # 'fedavg', 'krum', or 'manhattan'
 
-# FoolsGold Parameters
-FOOLSGOLD_ENABLED = False
-FOOLSGOLD_SIMILARITY_THRESHOLD = 0.5
-FOOLSGOLD_HISTORY_SIZE = 10
+# Krum Parameters
+KRUM_ENABLED = False
+KRUM_NUM_BYZANTINE = 1     # Expected number of Byzantine clients (f)
+KRUM_MULTI_K = 5           # Number of updates to select in Multi-Krum (m)
 
 # Manhattan Distance Parameters
 MANHATTAN_DISTANCE_ENABLED = False
@@ -65,8 +65,7 @@ SECRET_SHARING_THRESHOLD = 5
 TRUST_SCORE_ENABLED = False
 TRUST_WINDOW = 5
 
-# ==================== MANHATTAN DISTANCE (Future)
-MANHATTAN_DISTANCE_ENABLED = False
+# ==================== MANHATTAN DISTANCE ====================
 MANHATTAN_THRESHOLD = 0.5
 
 # ==================== EVALUATION ====================
@@ -86,6 +85,13 @@ RESULTS_DIR = './results'
 LOG_DIR = './logs'
 VERBOSE = True
 
+# ==================== CHECKPOINTING ====================
+CHECKPOINT_ENABLED = True           # Enable crash-recovery checkpoints
+CHECKPOINT_INTERVAL = 5             # Save a checkpoint every N rounds
+CHECKPOINT_DIR = './checkpoints'    # Root directory for checkpoint files
+CHECKPOINT_KEEP_LAST = 3            # Max checkpoint files to retain per experiment
+RESUME_FROM_CHECKPOINT = True       # Auto-resume if a checkpoint exists
+
 # ==================== EXPERIMENTAL SETTINGS ====================
 EXPERIMENTS = {
     'exp1': {
@@ -103,10 +109,10 @@ EXPERIMENTS = {
         'pqc_enabled': False
     },
     'exp3': {
-        'name': 'Byzantine Attack + FoolsGold',
+        'name': 'Byzantine Attack + Krum',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
-        'defense': 'foolsgold',
+        'defense': 'krum',
         'pqc_enabled': False
     },
     'exp4': {
@@ -117,10 +123,10 @@ EXPERIMENTS = {
         'pqc_enabled': False
     },
     'exp5': {
-        'name': 'Data Poisoning + FoolsGold',
+        'name': 'Data Poisoning + Krum',
         'byzantine_enabled': False,
         'data_poisoning_enabled': True,
-        'defense': 'foolsgold',
+        'defense': 'krum',
         'pqc_enabled': False
     },
     'exp6': {
@@ -131,10 +137,10 @@ EXPERIMENTS = {
         'pqc_enabled': True
     },
     'exp7': {
-        'name': 'Byzantine Attack + PQC + FoolsGold',
+        'name': 'Byzantine Attack + PQC + Krum',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
-        'defense': 'foolsgold',
+        'defense': 'krum',
         'pqc_enabled': True
     },
     'exp8': {
@@ -161,7 +167,9 @@ EXPERIMENTS = {
 }
 
 # ==================== DEVICE ====================
-DEVICE = 'cpu'  # Use 'cuda' if GPU available
+import torch as _torch
+DEVICE = 'cuda' if _torch.cuda.is_available() else 'cpu'
+del _torch
 DTYPE = 'float32'
 
 

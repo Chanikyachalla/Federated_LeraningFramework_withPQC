@@ -22,8 +22,9 @@ import time
 from typing import List, Dict, Tuple, Optional
 from model import create_model, CIFAR10CNN
 from defenses import create_defense
-from pqc import PostQuantumCrypto, serialize_update, deserialize_update, EncryptedUpdate, \
-    encrypt_update, decrypt_update, serialize_state_dict, deserialize_state_dict
+from pqc import (PostQuantumCrypto, serialize_update, deserialize_update,
+                  EncryptedUpdate, encrypt_update, decrypt_update,
+                  serialize_state_dict, deserialize_state_dict)
 from attacks import AttackManager
 from config import *
 
@@ -53,9 +54,9 @@ class FLClient:
         # Total rounds seen — used for cosine LR schedule
         self.round_num = 0
 
-        # PQC keys
+        # PQC keys — generate sig keypair whenever signing is enabled
         self.pqc = PostQuantumCrypto() if PQC_ENABLED else None
-        if self.pqc and ENCRYPT_MESSAGE:
+        if self.pqc and SIGN_MESSAGE:
             self.sig_pub_key, self.sig_sec_key = self.pqc.generate_sig_keypair()
         else:
             self.sig_pub_key, self.sig_sec_key = None, None
@@ -179,26 +180,48 @@ class FLClient:
     def encrypt_and_sign_update(self, update: torch.Tensor,
                                 server_kem_pub_key: bytes = None) -> EncryptedUpdate:
         """
-        Encrypt and sign model update using PQC primitives.
+        Encrypt and sign a model update using PQC primitives.
+
+        Security construction
+        ---------------------
+        1. KEM : ML-KEM-768 encapsulates a session key with the server's public key.
+        2. KDF : The raw KEM shared secret is passed through HKDF-SHA256 to derive
+                 a 256-bit AES key (done inside encrypt_update).
+        3. AEAD: AES-256-GCM encrypts the payload; AAD = client_id ‖ round_num
+                 binds the ciphertext to its context.
+        4. Sign: ML-DSA-65 signs the *bound payload*:
+                   client_id ‖ round_num ‖ kem_ciphertext ‖ nonce ‖ ciphertext
+                 so that replaying or reordering messages from different clients
+                 or rounds fails signature verification.
         """
         start_time = time.time()
 
-        update_bytes = serialize_update(update)
+        update_bytes    = serialize_update(update)
+        round_num       = self.round_num
 
-        signature = None
-        kem_ciphertext = None
+        # AAD for AES-GCM — authenticated but not encrypted
+        aad = EncryptedUpdate.build_aad(self.client_id, round_num)
+
+        signature       = None
+        kem_ciphertext  = None
         encrypted_update = update_bytes
-        nonce = None
+        nonce           = None
 
+        # Step 1+2+3: KEM encapsulation → HKDF key derivation → AES-GCM encryption
         if self.pqc and ENCRYPT_MESSAGE and server_kem_pub_key:
             enc_start = time.time()
             kem_ciphertext, shared_secret = self.pqc.encapsulate(server_kem_pub_key)
-            nonce, encrypted_update = encrypt_update(update_bytes, shared_secret)
+            nonce, encrypted_update = encrypt_update(update_bytes, shared_secret, aad=aad)
             self.metrics['encryption_time'].append(time.time() - enc_start)
 
+        # Step 4: Sign the full bound payload
         if self.pqc and SIGN_MESSAGE:
             sig_start = time.time()
-            signature = self.pqc.sign(encrypted_update)
+            bound_msg = EncryptedUpdate.build_bound_message(
+                self.client_id, round_num,
+                kem_ciphertext, nonce, encrypted_update
+            )
+            signature = self.pqc.sign(bound_msg)
             self.metrics['signature_time'].append(time.time() - sig_start)
 
         return EncryptedUpdate(
@@ -206,7 +229,8 @@ class FLClient:
             encrypted_update=encrypted_update,
             signature=signature,
             kem_ciphertext=kem_ciphertext,
-            nonce=nonce
+            nonce=nonce,
+            round_num=round_num,
         )
 
     @staticmethod
@@ -231,7 +255,7 @@ class FLServer:
         """
         Args:
             model:        Global model
-            defense_name: 'fedavg', 'foolsgold', or 'manhattan'
+            defense_name: 'fedavg', 'krum', or 'manhattan'
             device:       Device string
         """
         self.model = model
@@ -263,56 +287,83 @@ class FLServer:
         """Return server's ML-KEM public key so clients can encrypt updates."""
         return self.kem_pub_key
 
-    def verify_and_decrypt_updates(self, encrypted_updates: List[EncryptedUpdate]) \
+    def verify_and_decrypt_updates(self,
+                                   encrypted_updates: List[EncryptedUpdate],
+                                   round_num: int = 0) \
             -> Tuple[List[torch.Tensor], List[int], Dict]:
         """
-        Verify ML-DSA signatures and decrypt (ML-KEM + AES-GCM) each update.
+        Verify ML-DSA signatures and AES-GCM-decrypt each client update.
+
+        Verification checks the *bound payload*:
+          client_id ‖ round_num ‖ kem_ciphertext ‖ nonce ‖ ciphertext
+        so any replay, reorder, or metadata-substitution attack is caught.
+
+        AES-GCM decryption uses AAD = client_id ‖ round_num, which must
+        match the AAD used during encryption or decryption raises InvalidTag.
 
         Returns:
             (decrypted_updates, valid_client_ids, stats)
         """
         start_time = time.time()
 
-        decrypted_updates = []
-        valid_client_ids = []
-        num_valid = 0
-        num_invalid = 0
+        decrypted_updates  = []
+        valid_client_ids   = []
+        num_valid          = 0
+        num_invalid        = 0
 
         for enc_update in encrypted_updates:
-            client_id = enc_update.client_id
+            client_id      = enc_update.client_id
             encrypted_data = enc_update.encrypted_update
-            signature = enc_update.signature
+            signature      = enc_update.signature
             kem_ciphertext = enc_update.kem_ciphertext
-            nonce = enc_update.nonce
+            nonce          = enc_update.nonce
+            msg_round      = enc_update.round_num
 
-            # Decrypt
-            decrypted_data = encrypted_data
-            if self.pqc and ENCRYPT_MESSAGE and kem_ciphertext and nonce:
-                dec_start = time.time()
-                shared_secret = self.pqc.decapsulate(kem_ciphertext)
-                decrypted_data = decrypt_update(nonce, encrypted_data, shared_secret)
-                self.metrics['decryption_time'].append(time.time() - dec_start)
+            # Build AAD and bound message using the round_num embedded in the message
+            aad       = EncryptedUpdate.build_aad(client_id, msg_round)
+            bound_msg = EncryptedUpdate.build_bound_message(
+                client_id, msg_round, kem_ciphertext, nonce, encrypted_data
+            )
 
-            # Verify signature
+            # ---- Step 1: Verify signature BEFORE decrypting ----
+            # (fail-fast: don't waste compute on forged messages)
             is_valid = True
             if self.pqc and SIGN_MESSAGE and signature:
                 ver_start = time.time()
                 client_pub_key = self.client_public_keys.get(client_id)
                 if client_pub_key:
-                    is_valid = self.pqc.verify(encrypted_data, signature, client_pub_key)
+                    is_valid = self.pqc.verify(bound_msg, signature, client_pub_key)
                 self.metrics['verification_time'].append(time.time() - ver_start)
 
-            if is_valid:
+            if not is_valid:
+                print(f"[Server] Invalid signature from client {client_id} "
+                      f"(round {msg_round}) — dropping update.")
+                num_invalid += 1
+                continue
+
+            # ---- Step 2: Decrypt ----
+            decrypted_data = encrypted_data
+            if self.pqc and ENCRYPT_MESSAGE and kem_ciphertext and nonce:
+                dec_start = time.time()
                 try:
-                    update = deserialize_update(decrypted_data)
-                    decrypted_updates.append(update)
-                    valid_client_ids.append(client_id)
-                    num_valid += 1
+                    shared_secret  = self.pqc.decapsulate(kem_ciphertext)
+                    decrypted_data = decrypt_update(nonce, encrypted_data,
+                                                   shared_secret, aad=aad)
                 except Exception as e:
-                    print(f"[Server] Failed to deserialize update from client {client_id}: {e}")
+                    print(f"[Server] Decryption failed for client {client_id}: {e}")
                     num_invalid += 1
-            else:
-                print(f"[Server] Invalid signature from client {client_id} — dropping update.")
+                    self.metrics['decryption_time'].append(time.time() - dec_start)
+                    continue
+                self.metrics['decryption_time'].append(time.time() - dec_start)
+
+            # ---- Step 3: Deserialise ----
+            try:
+                update = deserialize_update(decrypted_data)
+                decrypted_updates.append(update)
+                valid_client_ids.append(client_id)
+                num_valid += 1
+            except Exception as e:
+                print(f"[Server] Failed to deserialise update from client {client_id}: {e}")
                 num_invalid += 1
 
         total_time = time.time() - start_time
@@ -321,10 +372,10 @@ class FLServer:
         self.metrics['num_invalid_signatures'].append(num_invalid)
 
         stats = {
-            'time': total_time,
-            'num_valid': num_valid,
-            'num_invalid': num_invalid,
-            'valid_client_ids': valid_client_ids
+            'time':             total_time,
+            'num_valid':        num_valid,
+            'num_invalid':      num_invalid,
+            'valid_client_ids': valid_client_ids,
         }
 
         return decrypted_updates, valid_client_ids, stats
@@ -340,7 +391,7 @@ class FLServer:
         if not updates:
             return None, {}
 
-        if self.defense_name == 'foolsgold':
+        if self.defense_name == 'krum':
             aggregated, stats = self.defense.aggregate(updates, valid_client_ids)
         elif self.defense_name == 'manhattan':
             aggregated, stats = self.defense.aggregate(updates, valid_client_ids)
@@ -479,7 +530,7 @@ class FederatedLearner:
         # Step 4: Server — verify signatures & decrypt updates               #
         # ------------------------------------------------------------------ #
         updates, valid_client_ids, pqc_stats = self.server.verify_and_decrypt_updates(
-            encrypted_updates
+            encrypted_updates, round_num=round_num
         )
         round_stats['pqc_stats'] = pqc_stats
 
@@ -529,8 +580,8 @@ class FederatedLearner:
 
         with torch.no_grad():
             for images, labels in test_loader:
-                images = images.to(DEVICE)
-                labels = labels.to(DEVICE)
+                images = images.to(self.server.device)
+                labels = labels.to(self.server.device)
 
                 outputs = self.server.model(images)
                 loss = criterion(outputs, labels)
