@@ -4,11 +4,34 @@ Evaluation Metrics and Statistics Tracking
 
 import json
 import pickle
+import logging
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')   # non-interactive backend — safe for scripts with no display
 import matplotlib.pyplot as plt
 from typing import Dict, List
 from pathlib import Path
 from config import *
+
+# Resolve paths relative to this file so they work regardless of CWD
+_PROJECT_ROOT = Path(__file__).parent
+_RESULTS_DIR  = _PROJECT_ROOT / RESULTS_DIR
+_LOG_DIR      = _PROJECT_ROOT / LOG_DIR
+
+
+def _safe_json(obj):
+    """Recursively convert numpy types so json.dump never raises TypeError."""
+    if isinstance(obj, dict):
+        return {k: _safe_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_safe_json(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    return obj
 
 
 class MetricsTracker:
@@ -19,11 +42,19 @@ class MetricsTracker:
     def __init__(self, experiment_name: str):
         """
         Initialize metrics tracker
-        
+
         Args:
             experiment_name: Name of experiment
         """
         self.experiment_name = experiment_name
+        # Build a filesystem-safe version of the name for use in filenames
+        self.safe_name = (
+            experiment_name
+            .replace(':', '')
+            .replace(' ', '_')
+            .replace('/', '-')
+            .replace('\\', '-')
+        )
         self.metrics = {
             'training_loss': [],
             'test_accuracy': [],
@@ -36,31 +67,94 @@ class MetricsTracker:
             'communication_overhead': [],
             'num_valid_updates': [],
             'num_invalid_updates': [],
-            'foolsgold_suspicious_clients': [],
+            'krum_rejected_clients': [],
             'client_losses': []
         }
         self.round_data = []
-    
+
+        # Ensure output directories exist immediately
+        _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Set up per-experiment log file
+        log_file = _LOG_DIR / f"{self.safe_name}.log"
+        self._logger = logging.getLogger(self.safe_name)
+        self._logger.setLevel(logging.INFO)
+        # Avoid duplicate handlers if logger was already created
+        if not self._logger.handlers:
+            fh = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+            fh.setFormatter(logging.Formatter('%(asctime)s | %(message)s',
+                                              datefmt='%Y-%m-%d %H:%M:%S'))
+            self._logger.addHandler(fh)
+
+        self._logger.info(f"Experiment started: {experiment_name}")
+
+    def restore(self, metrics_data: dict) -> None:
+        """
+        Restore metrics from a checkpoint dictionary.
+
+        Called when resuming an experiment after a crash.  Only known keys
+        are restored so that adding new metric keys in future does not break
+        loading of old checkpoints.
+
+        Args:
+            metrics_data: The 'metrics' dict previously saved in progress.json
+        """
+        for key in self.metrics:
+            if key in metrics_data and metrics_data[key]:
+                self.metrics[key] = metrics_data[key]
+        rounds_restored = len(self.metrics.get('test_accuracy', []))
+        self._logger.info(
+            f"Metrics restored from checkpoint ({rounds_restored} rounds)"
+        )
+        print(f"  [Metrics] Restored {rounds_restored} rounds from checkpoint.")
+
+    def save_incremental(self) -> None:
+        """
+        Flush current metrics to disk immediately (called after every round).
+
+        Writes two files atomically:
+          *_metrics_live.json   — full metrics dict (lists of values per round)
+          *_summary_live.json   — aggregated summary statistics
+
+        The '_live' suffix distinguishes these in-progress files from the
+        final '_metrics.json' / '_summary.json' written at experiment end.
+        """
+        out = _RESULTS_DIR
+        out.mkdir(parents=True, exist_ok=True)
+
+        # Atomic write helper: write to .tmp, then replace
+        def _atomic_json(path: Path, data: object) -> None:
+            tmp = path.with_suffix('.tmp')
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(_safe_json(data), f, indent=2)
+            tmp.replace(path)
+
+        _atomic_json(out / f"{self.safe_name}_metrics_live.json", self.metrics)
+        _atomic_json(out / f"{self.safe_name}_summary_live.json",
+                     self.get_summary())
+
+
     def add_round(self, round_num: int, round_stats: Dict):
         """
-        Add metrics from a round
-        
+        Add metrics from a round.
+
         Args:
             round_num: Round number
             round_stats: Statistics from that round
         """
         # Training loss
-        if 'client_losses' in round_stats:
-            avg_loss = np.mean(round_stats['client_losses'])
+        if 'client_losses' in round_stats and round_stats['client_losses']:
+            avg_loss = float(np.mean(round_stats['client_losses']))
             self.metrics['training_loss'].append(avg_loss)
             self.metrics['client_losses'].append(round_stats['client_losses'])
-        
+
         # Test metrics
         if 'test_accuracy' in round_stats:
             self.metrics['test_accuracy'].append(round_stats['test_accuracy'])
         if 'test_loss' in round_stats:
             self.metrics['test_loss'].append(round_stats['test_loss'])
-        
+
         # PQC metrics
         pqc_stats = round_stats.get('pqc_stats', {})
         if 'time' in pqc_stats:
@@ -69,17 +163,29 @@ class MetricsTracker:
             self.metrics['num_valid_updates'].append(pqc_stats['num_valid'])
         if 'num_invalid' in pqc_stats:
             self.metrics['num_invalid_updates'].append(pqc_stats['num_invalid'])
-        
+
         # Aggregation/Defense metrics
         agg_stats = round_stats.get('aggregation_stats', {})
-        if 'num_suspicious' in agg_stats:
-            self.metrics['foolsgold_suspicious_clients'].append(agg_stats['num_suspicious'])
-        
+        if 'num_rejected' in agg_stats:
+            self.metrics['krum_rejected_clients'].append(agg_stats['num_rejected'])
+
         # Store round data
         self.round_data.append({
             'round': round_num,
             'stats': round_stats
         })
+
+        # Write a one-line entry to the log file
+        acc  = round_stats.get('test_accuracy', 0.0)
+        loss = round_stats.get('test_loss', 0.0)
+        avg_client_loss = float(np.mean(round_stats['client_losses'])) \
+            if round_stats.get('client_losses') else 0.0
+        self._logger.info(
+            f"Round {round_num + 1:04d} | "
+            f"TrainLoss={avg_client_loss:.4f} | "
+            f"TestLoss={loss:.4f} | "
+            f"Accuracy={acc:.2f}%"
+        )
     
     def get_summary(self) -> Dict:
         """Get summary statistics"""
@@ -120,45 +226,53 @@ class MetricsTracker:
         if self.metrics['num_invalid_updates']:
             summary['total_invalid_updates'] = sum(self.metrics['num_invalid_updates'])
         
-        # Defense metrics
-        if self.metrics['foolsgold_suspicious_clients']:
-            summary['avg_suspicious_clients'] = np.mean(
-                self.metrics['foolsgold_suspicious_clients']
+        # Defense metrics (Krum)
+        if self.metrics['krum_rejected_clients']:
+            summary['avg_krum_rejected_clients'] = np.mean(
+                self.metrics['krum_rejected_clients']
             )
         
         return summary
     
-    def save_metrics(self, output_dir: str = RESULTS_DIR):
+    def save_metrics(self, output_dir: str = None):
         """
-        Save metrics to file
-        
+        Save metrics to the results directory.
+
         Args:
-            output_dir: Output directory
+            output_dir: Override output directory (defaults to RESULTS_DIR)
         """
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
-        # Save as JSON (for easy reading)
+        out = Path(output_dir) if output_dir else _RESULTS_DIR
+        out.mkdir(parents=True, exist_ok=True)
+
+        # --- JSON summary (human-readable) ---
         summary = self.get_summary()
-        summary_file = Path(output_dir) / f"{self.experiment_name}_summary.json"
-        with open(summary_file, 'w') as f:
-            json.dump(summary, f, indent=2)
-        
-        # Save detailed metrics as pickle
-        metrics_file = Path(output_dir) / f"{self.experiment_name}_metrics.pkl"
+        summary_file = out / f"{self.safe_name}_summary.json"
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            json.dump(_safe_json(summary), f, indent=2)
+
+        # --- Full metrics as pickle ---
+        metrics_file = out / f"{self.safe_name}_metrics.pkl"
         with open(metrics_file, 'wb') as f:
             pickle.dump(self.metrics, f)
-        
-        print(f"Metrics saved to {output_dir}")
+
+        # --- Full metrics as JSON (for easy external loading) ---
+        metrics_json_file = out / f"{self.safe_name}_metrics.json"
+        with open(metrics_json_file, 'w', encoding='utf-8') as f:
+            json.dump(_safe_json(self.metrics), f, indent=2)
+
+        self._logger.info(f"Metrics saved to {out}")
+        print(f"Metrics saved to {out}")
     
-    def plot_results(self, output_dir: str = RESULTS_DIR):
+    def plot_results(self, output_dir: str = None):
         """
-        Plot and save figures
-        
+        Plot and save figures.
+
         Args:
-            output_dir: Output directory
+            output_dir: Override output directory (defaults to RESULTS_DIR)
         """
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
+        out = Path(output_dir) if output_dir else _RESULTS_DIR
+        out.mkdir(parents=True, exist_ok=True)
+
         # Accuracy plot
         if self.metrics['test_accuracy']:
             plt.figure(figsize=(10, 6))
@@ -167,9 +281,10 @@ class MetricsTracker:
             plt.ylabel('Test Accuracy (%)')
             plt.title(f'{self.experiment_name} - Test Accuracy')
             plt.grid(True)
-            plt.savefig(Path(output_dir) / f"{self.experiment_name}_accuracy.png")
+            plt.tight_layout()
+            plt.savefig(out / f"{self.safe_name}_accuracy.png", dpi=100)
             plt.close()
-        
+
         # Loss plot
         if self.metrics['training_loss']:
             plt.figure(figsize=(10, 6))
@@ -178,9 +293,10 @@ class MetricsTracker:
             plt.ylabel('Training Loss')
             plt.title(f'{self.experiment_name} - Training Loss')
             plt.grid(True)
-            plt.savefig(Path(output_dir) / f"{self.experiment_name}_loss.png")
+            plt.tight_layout()
+            plt.savefig(out / f"{self.safe_name}_loss.png", dpi=100)
             plt.close()
-        
+
         # Aggregation time plot
         if self.metrics['aggregation_time']:
             plt.figure(figsize=(10, 6))
@@ -189,29 +305,30 @@ class MetricsTracker:
             plt.ylabel('Time (seconds)')
             plt.title(f'{self.experiment_name} - Aggregation Time')
             plt.grid(True)
-            plt.savefig(Path(output_dir) / f"{self.experiment_name}_agg_time.png")
+            plt.tight_layout()
+            plt.savefig(out / f"{self.safe_name}_agg_time.png", dpi=100)
             plt.close()
-        
-        # Valid updates plot
-        if self.metrics['num_valid_updates']:
-            plt.figure(figsize=(10, 6))
-            valid = self.metrics['num_valid_updates']
-            invalid = self.metrics['num_invalid_updates']
-            
-            x = np.arange(len(valid))
+
+        # Valid/invalid updates bar chart — only when both lists are non-empty
+        valid   = self.metrics['num_valid_updates']
+        invalid = self.metrics['num_invalid_updates']
+        if valid and invalid and len(valid) == len(invalid):
+            x     = np.arange(len(valid))
             width = 0.35
-            
-            plt.bar(x - width/2, valid, width, label='Valid')
-            plt.bar(x + width/2, invalid, width, label='Invalid')
+            plt.figure(figsize=(10, 6))
+            plt.bar(x - width / 2, valid,   width, label='Valid')
+            plt.bar(x + width / 2, invalid, width, label='Invalid')
             plt.xlabel('Round')
             plt.ylabel('Number of Updates')
             plt.title(f'{self.experiment_name} - Update Verification')
             plt.legend()
             plt.grid(True)
-            plt.savefig(Path(output_dir) / f"{self.experiment_name}_updates.png")
+            plt.tight_layout()
+            plt.savefig(out / f"{self.safe_name}_updates.png", dpi=100)
             plt.close()
-        
-        print(f"Plots saved to {output_dir}")
+
+        self._logger.info(f"Plots saved to {out}")
+        print(f"Plots saved to {out}")
     
     def print_summary(self):
         """Print summary statistics"""
@@ -261,34 +378,39 @@ class ComparisonAnalyzer:
                 }
         return results
     
-    def plot_comparison(self, output_dir: str = RESULTS_DIR):
+    def plot_comparison(self, output_dir: str = None):
         """Plot comparison of experiments"""
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
+        out = Path(output_dir) if output_dir else _RESULTS_DIR
+        out.mkdir(parents=True, exist_ok=True)
+
         # Accuracy comparison
         plt.figure(figsize=(12, 6))
         for name, metrics in self.experiments.items():
             if 'test_accuracy' in metrics and metrics['test_accuracy']:
                 plt.plot(metrics['test_accuracy'], marker='o', label=name)
-        
+
         plt.xlabel('Round')
         plt.ylabel('Test Accuracy (%)')
         plt.title('Accuracy Comparison Across Experiments')
         plt.legend()
         plt.grid(True)
-        plt.savefig(Path(output_dir) / "comparison_accuracy.png")
+        plt.tight_layout()
+        plt.savefig(out / "comparison_accuracy.png", dpi=100)
         plt.close()
-        
+
         # Loss comparison
         plt.figure(figsize=(12, 6))
         for name, metrics in self.experiments.items():
             if 'training_loss' in metrics and metrics['training_loss']:
                 plt.plot(metrics['training_loss'], marker='s', label=name)
-        
+
         plt.xlabel('Round')
         plt.ylabel('Training Loss')
         plt.title('Loss Comparison Across Experiments')
         plt.legend()
         plt.grid(True)
-        plt.savefig(Path(output_dir) / "comparison_loss.png")
+        plt.tight_layout()
+        plt.savefig(out / "comparison_loss.png", dpi=100)
         plt.close()
+
+        print(f"Comparison plots saved to {out}")

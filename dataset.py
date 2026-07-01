@@ -134,13 +134,29 @@ class CIFAR10Dataset:
         """
         if shuffle is None:
             shuffle = train
-        
+
         dataset = self.get_client_dataset(client_id, train=train)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+        # num_workers=0: required on Windows (no fork); pin_memory speeds GPU transfer
+        from config import DEVICE
+        return DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=0,
+            pin_memory=(DEVICE == 'cuda'),
+            drop_last=False,
+        )
     
     def get_global_testloader(self, batch_size=BATCH_SIZE):
         """Get DataLoader for global test set"""
-        return DataLoader(self.test_dataset, batch_size=batch_size, shuffle=False)
+        from config import DEVICE
+        return DataLoader(
+            self.test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=(DEVICE == 'cuda'),
+        )
     
     def get_data_info(self):
         """Get information about data distribution"""

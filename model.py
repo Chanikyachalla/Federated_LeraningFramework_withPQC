@@ -154,35 +154,32 @@ class CIFAR10CNN(nn.Module):
     # These MUST be used for FL aggregation to keep BN stats in sync.
     # ------------------------------------------------------------------
 
-    def get_state_dict_flat(self):
+    def get_state_dict_flat(self) -> torch.Tensor:
         """
         Flatten the entire state_dict (parameters + buffers) to a single tensor.
         Critical: BN running_mean / running_var buffers are included here.
+
+        Key order is always deterministic (OrderedDict from state_dict()).
         """
-        state_dict = self.state_dict()
-        flat_list = []
-        self._state_dict_keys = []  # Store (key, shape) for reconstruction
-
-        for key, tensor in state_dict.items():
-            self._state_dict_keys.append((key, tensor.shape))
-            flat_list.append(tensor.float().view(-1))
-
+        flat_list = [tensor.float().view(-1)
+                     for tensor in self.state_dict().values()]
         return torch.cat(flat_list)
 
-    def set_state_dict_flat(self, flat_tensor):
+    def set_state_dict_flat(self, flat_tensor: torch.Tensor) -> None:
         """
         Restore state_dict (parameters + buffers) from a flattened tensor.
-        Ensures BN statistics are correctly set.
+        Uses the same key order as get_state_dict_flat().
         """
         offset = 0
         new_state_dict = {}
-        current_state = self.state_dict()
-
-        for key, tensor in current_state.items():
+        for key, tensor in self.state_dict().items():
             numel = tensor.numel()
-            new_state_dict[key] = flat_tensor[offset:offset + numel].view(tensor.shape).to(tensor.dtype)
+            new_state_dict[key] = (
+                flat_tensor[offset:offset + numel]
+                .view(tensor.shape)
+                .to(tensor.dtype)
+            )
             offset += numel
-
         self.load_state_dict(new_state_dict)
 
     def get_state_dict_update(self, new_model: 'CIFAR10CNN') -> torch.Tensor:
