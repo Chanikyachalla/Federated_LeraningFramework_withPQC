@@ -55,6 +55,9 @@ class ExperimentRunner:
         # Override global trust flag for this experiment
         _exp_trust = self.config.get('trust_enabled', False)
         _cfg.TRUST_SCORE_ENABLED = _exp_trust
+        
+        # Override trust scoring method
+        _cfg.TRUST_SCORING_METHOD = self.config.get('trust_scoring_method', 'cosine')
 
         # Create global model
         global_model = create_model(device=DEVICE)
@@ -259,61 +262,9 @@ def run_experiment_1():
 
 
 def run_experiment_2():
-    """Experiment 2: Byzantine Attack + FedAvg"""
+    """Experiment 2: Byzantine Attack + PQC + FedAvg"""
     config = {
-        'name': 'Exp2: Byzantine Attack + FedAvg',
-        'byzantine_enabled': True,
-        'data_poisoning_enabled': False,
-        'defense': 'fedavg',
-        'pqc_enabled': False
-    }
-    runner = ExperimentRunner(config)
-    return runner.run()
-
-
-def run_experiment_3():
-    """Experiment 3: Byzantine Attack + Krum"""
-    config = {
-        'name': 'Exp3: Byzantine Attack + Krum',
-        'byzantine_enabled': True,
-        'data_poisoning_enabled': False,
-        'defense': 'krum',
-        'pqc_enabled': False
-    }
-    runner = ExperimentRunner(config)
-    return runner.run()
-
-
-def run_experiment_4():
-    """Experiment 4: Data Poisoning + FedAvg"""
-    config = {
-        'name': 'Exp4: Data Poisoning + FedAvg',
-        'byzantine_enabled': False,
-        'data_poisoning_enabled': True,
-        'defense': 'fedavg',
-        'pqc_enabled': False
-    }
-    runner = ExperimentRunner(config)
-    return runner.run()
-
-
-def run_experiment_5():
-    """Experiment 5: Data Poisoning + Krum"""
-    config = {
-        'name': 'Exp5: Data Poisoning + Krum',
-        'byzantine_enabled': False,
-        'data_poisoning_enabled': True,
-        'defense': 'krum',
-        'pqc_enabled': False
-    }
-    runner = ExperimentRunner(config)
-    return runner.run()
-
-
-def run_experiment_6():
-    """Experiment 6: Byzantine Attack + PQC + FedAvg"""
-    config = {
-        'name': 'Exp6: Byzantine Attack + PQC + FedAvg',
+        'name': 'Exp2: Byzantine Attack + PQC + FedAvg',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
         'defense': 'fedavg',
@@ -323,13 +274,69 @@ def run_experiment_6():
     return runner.run()
 
 
-def run_experiment_7():
-    """Experiment 7: Byzantine Attack + PQC + Krum"""
+def run_experiment_3():
+    """Experiment 3: Byzantine Attack + PQC + Krum"""
     config = {
-        'name': 'Exp7: Byzantine Attack + PQC + Krum',
+        'name': 'Exp3: Byzantine Attack + PQC + Krum',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
         'defense': 'krum',
+        'pqc_enabled': True
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_4():
+    """Experiment 4: Byzantine Attack + PQC + Manhattan Distance"""
+    config = {
+        'name': 'Exp4: Byzantine Attack + PQC + Manhattan Distance',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'manhattan',
+        'pqc_enabled': True
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_5():
+    """Experiment 5: Byzantine Attack + PQC + Cosine-Based Trust"""
+    config = {
+        'name': 'Exp5: Byzantine Attack + PQC + Cosine-Based Trust',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'fedavg',
+        'pqc_enabled': True,
+        'trust_enabled': True,
+        'trust_scoring_method': 'cosine'
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_6():
+    """Experiment 6: Byzantine Attack + PQC + Loss-Based Trust"""
+    config = {
+        'name': 'Exp6: Byzantine Attack + PQC + Loss-Based Trust',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'fedavg',
+        'pqc_enabled': True,
+        'trust_enabled': True,
+        'trust_scoring_method': 'loss'
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_7():
+    """Experiment 7: Data Poisoning + PQC + FedAvg"""
+    config = {
+        'name': 'Exp7: Data Poisoning + PQC + FedAvg',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'fedavg',
         'pqc_enabled': True
     }
     runner = ExperimentRunner(config)
@@ -337,75 +344,78 @@ def run_experiment_7():
 
 
 def run_experiment_8():
-    """Experiment 8: Byzantine Attack + Manhattan Distance"""
+    """Experiment 8: Data Poisoning + PQC + Krum"""
     config = {
-        'name': 'Exp8: Byzantine Attack + Manhattan Distance',
-        'byzantine_enabled': True,
-        'data_poisoning_enabled': False,
-        'defense': 'manhattan',
-        'pqc_enabled': False
+        'name': 'Exp8: Data Poisoning + PQC + Krum',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'krum',
+        'pqc_enabled': True
     }
     runner = ExperimentRunner(config)
     return runner.run()
 
 
 def run_experiment_9():
-    """Experiment 9: Data Poisoning + Manhattan Distance"""
+    """Experiment 9: Data Poisoning + PQC + Manhattan Distance"""
     config = {
-        'name': 'Exp9: Data Poisoning + Manhattan Distance',
+        'name': 'Exp9: Data Poisoning + PQC + Manhattan Distance',
         'byzantine_enabled': False,
         'data_poisoning_enabled': True,
         'defense': 'manhattan',
-        'pqc_enabled': False
+        'pqc_enabled': True
     }
     runner = ExperimentRunner(config)
     return runner.run()
 
 
 def run_experiment_10():
-    """Experiment 10: Byzantine Attack + PQC + Manhattan Distance"""
+    """Experiment 10: Data Poisoning + PQC + Cosine-Based Trust"""
     config = {
-        'name': 'Exp10: Byzantine Attack + PQC + Manhattan Distance',
-        'byzantine_enabled': True,
-        'data_poisoning_enabled': False,
-        'defense': 'manhattan',
+        'name': 'Exp10: Data Poisoning + PQC + Cosine-Based Trust',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'fedavg',
         'pqc_enabled': True,
-        'trust_enabled': False
+        'trust_enabled': True,
+        'trust_scoring_method': 'cosine'
     }
     runner = ExperimentRunner(config)
     return runner.run()
 
 
 def run_experiment_11():
-    """Experiment 11: Byzantine Attack + Trust-Based FedAvg"""
+    """Experiment 11: Data Poisoning + PQC + Loss-Based Trust"""
     config = {
-        'name': 'Exp11: Byzantine Attack + Trust-Based FedAvg',
-        'byzantine_enabled': True,
-        'data_poisoning_enabled': False,
+        'name': 'Exp11: Data Poisoning + PQC + Loss-Based Trust',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
         'defense': 'fedavg',
-        'pqc_enabled': False,
-        'trust_enabled': True
+        'pqc_enabled': True,
+        'trust_enabled': True,
+        'trust_scoring_method': 'loss'
     }
     runner = ExperimentRunner(config)
     return runner.run()
 
 
 def run_experiment_12():
-    """Experiment 12: Byzantine Attack + PQC + Trust-Based FedAvg"""
+    """Experiment 12: Data Poisoning + PQC + Combined Trust"""
     config = {
-        'name': 'Exp12: Byzantine Attack + PQC + Trust-Based FedAvg',
-        'byzantine_enabled': True,
-        'data_poisoning_enabled': False,
+        'name': 'Exp12: Data Poisoning + PQC + Combined Trust',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
         'defense': 'fedavg',
         'pqc_enabled': True,
-        'trust_enabled': True
+        'trust_enabled': True,
+        'trust_scoring_method': 'combined'
     }
     runner = ExperimentRunner(config)
     return runner.run()
 
 
 def run_all_experiments():
-    """Run all 10 experiments"""
+    """Run all 12 experiments"""
     print("\n" + "="*80)
     print("RUNNING ALL EXPERIMENTS FOR POST-QUANTUM SECURE FEDERATED LEARNING")
     print("="*80)
