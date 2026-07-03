@@ -26,8 +26,9 @@ from pqc import (PostQuantumCrypto, serialize_update, deserialize_update,
                   EncryptedUpdate, encrypt_update, decrypt_update,
                   serialize_state_dict, deserialize_state_dict)
 from attacks import AttackManager
-from trust import TrustManager
+from trust import TrustManager, class_wise_loss
 from config import *
+import config as _cfg
 
 
 class FLClient:
@@ -267,7 +268,7 @@ class FLServer:
         self.defense_name = defense_name
 
         # Trust scoring
-        _trust_on = TRUST_SCORE_ENABLED if trust_enabled is None else trust_enabled
+        _trust_on = _cfg.TRUST_SCORE_ENABLED if trust_enabled is None else trust_enabled
         self.trust_manager: Optional[TrustManager] = (
             TrustManager() if _trust_on else None
         )
@@ -394,13 +395,18 @@ class FLServer:
         return decrypted_updates, valid_client_ids, stats
 
     def aggregate_updates(self, updates: List[torch.Tensor],
-                          valid_client_ids: List[int]) -> Tuple[torch.Tensor, Dict]:
+                          valid_client_ids: List[int],
+                          client_losses: Optional[List[float]] = None,
+                          base_loss: Optional[float] = None,
+                          client_class_losses=None,
+                          base_class_losses=None,
+                          round_num: int = 9999) -> Tuple[torch.Tensor, Dict]:
         """
         Aggregate valid updates using the chosen defense mechanism.
 
-        When trust scoring is enabled, the appropriate per-defense trust
-        arguments are computed and passed in before the scores are refreshed
-        with the result of this round's aggregation.
+        Includes trimmed-mean backstop when trust is enabled:
+        the top/bottom TRUST_TRIM_RATIO of updates by L2 norm are removed
+        before trust-weighted averaging, giving defense-in-depth.
 
         Returns:
             (aggregated_update_tensor, aggregation_stats)
@@ -411,23 +417,46 @@ class FLServer:
         tm = self.trust_manager  # shorthand; may be None
 
         if self.defense_name == 'krum':
-            modifiers = tm.get_krum_modifiers(valid_client_ids) if tm else None
+            modifiers = tm.get_krum_modifiers(valid_client_ids, round_num) if tm else None
             aggregated, stats = self.defense.aggregate(
                 updates, valid_client_ids, trust_modifiers=modifiers
             )
         elif self.defense_name == 'manhattan':
-            tw = tm.get_manhattan_weights(valid_client_ids) if tm else None
+            tw = tm.get_manhattan_weights(valid_client_ids, round_num) if tm else None
             aggregated, stats = self.defense.aggregate(
                 updates, valid_client_ids, trust_weights=tw
             )
-        else:  # fedavg
-            tw = tm.get_weights(valid_client_ids) if tm else None
-            aggregated = self.defense.aggregate(updates, trust_weights=tw)
+        else:  # fedavg — apply trimmed-mean backstop then trust-weighted average
+            tw = tm.get_weights(valid_client_ids, round_num) if tm else None
+            if tm is not None and len(updates) > 3:
+                # Trimmed-mean backstop: remove extreme-norm outliers first
+                trim_k = max(1, int(len(updates) * _cfg.TRUST_TRIM_RATIO))
+                stacked = torch.stack(updates)
+                norms = stacked.norm(dim=1)
+                sorted_idx = torch.argsort(norms)
+                keep_idx = sorted_idx[trim_k: len(updates) - trim_k]
+                if len(keep_idx) >= 1:
+                    kept_updates = [updates[i] for i in keep_idx.tolist()]
+                    kept_ids = [valid_client_ids[i] for i in keep_idx.tolist()]
+                    kept_weights = tm.get_weights(kept_ids, round_num)
+                    aggregated = self.defense.aggregate(kept_updates,
+                                                       trust_weights=kept_weights)
+                else:
+                    aggregated = self.defense.aggregate(updates, trust_weights=tw)
+            else:
+                aggregated = self.defense.aggregate(updates, trust_weights=tw)
             stats = {}
 
         # Update trust scores now that we have the aggregated reference
         if tm is not None and aggregated is not None:
-            tm.update_scores(valid_client_ids, updates, aggregated)
+            tm.update_scores(
+                valid_client_ids, updates, aggregated,
+                client_losses=client_losses,
+                base_loss=base_loss,
+                client_class_losses=client_class_losses,
+                base_class_losses=base_class_losses,
+                round_num=round_num,
+            )
 
         return aggregated, stats
 
@@ -575,10 +604,72 @@ class FederatedLearner:
         round_stats['pqc_stats'] = pqc_stats
 
         # ------------------------------------------------------------------ #
+        # Step 4.5: If loss-based trust, evaluate impact of each update      #
+        # ------------------------------------------------------------------ #
+        client_losses = None
+        base_loss = None
+        client_class_losses = None
+        base_class_losses = None
+
+        use_loss_trust = (
+            _cfg.TRUST_SCORE_ENABLED
+            and getattr(self.server, 'trust_manager', None) is not None
+            and _cfg.TRUST_SCORING_METHOD in ('loss', 'combined')
+            and test_loader
+        )
+
+        if use_loss_trust:
+            tm = self.server.trust_manager
+            # Build the stratified validation pool once (first round or if missing)
+            if tm._validation_pool is None:
+                tm.build_pool(test_loader, num_classes=_cfg.NUM_CLASSES,
+                              batches_per_class=3)
+
+            # Get a rotating set of batches seeded by this round number
+            val_batches = tm.get_validation_batches(
+                round_num, k=_cfg.TRUST_VALIDATION_BATCHES
+            )
+
+            if val_batches:
+                # Baseline: scalar loss + per-class loss before any update
+                base_loss, _ = self.evaluate(test_loader,
+                                             num_batches=_cfg.TRUST_VALIDATION_BATCHES)
+                base_class_losses = class_wise_loss(
+                    self.server.model, val_batches,
+                    num_classes=_cfg.NUM_CLASSES,
+                    device=self.server.device
+                )
+
+                # Per-client: apply update → evaluate → restore
+                client_losses = []
+                client_class_losses = []
+                original_flat = self.server.model.get_state_dict_flat()
+                for update in updates:
+                    temp_flat = original_flat + SERVER_LEARNING_RATE * update
+                    self.server.model.set_state_dict_flat(temp_flat)
+                    c_loss, _ = self.evaluate(
+                        test_loader, num_batches=_cfg.TRUST_VALIDATION_BATCHES
+                    )
+                    c_class_loss = class_wise_loss(
+                        self.server.model, val_batches,
+                        num_classes=_cfg.NUM_CLASSES,
+                        device=self.server.device
+                    )
+                    client_losses.append(c_loss)
+                    client_class_losses.append(c_class_loss)
+                # Restore original model
+                self.server.model.set_state_dict_flat(original_flat)
+
+        # ------------------------------------------------------------------ #
         # Step 5: Aggregate using defense mechanism                          #
         # ------------------------------------------------------------------ #
         aggregated_update, agg_stats = self.server.aggregate_updates(
-            updates, valid_client_ids
+            updates, valid_client_ids,
+            client_losses=client_losses,
+            base_loss=base_loss,
+            client_class_losses=client_class_losses,
+            base_class_losses=base_class_losses,
+            round_num=round_num,
         )
         round_stats['aggregation_stats'] = agg_stats
 
@@ -608,7 +699,7 @@ class FederatedLearner:
 
         return round_stats
 
-    def evaluate(self, test_loader) -> Tuple[float, float]:
+    def evaluate(self, test_loader, num_batches=None) -> Tuple[float, float]:
         """
         Evaluate the global model on the test set.
 
@@ -620,9 +711,14 @@ class FederatedLearner:
         total_loss = 0.0
         correct = 0
         total = 0
+        
+        batches_evaluated = 0
 
         with torch.no_grad():
             for images, labels in test_loader:
+                if num_batches is not None and batches_evaluated >= num_batches:
+                    break
+                    
                 images = images.to(self.server.device)
                 labels = labels.to(self.server.device)
 
@@ -633,8 +729,10 @@ class FederatedLearner:
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
+                
+                batches_evaluated += 1
 
         accuracy = 100.0 * correct / total if total > 0 else 0.0
-        avg_loss = total_loss / len(test_loader) if len(test_loader) > 0 else 0.0
+        avg_loss = total_loss / batches_evaluated if batches_evaluated > 0 else 0.0
 
         return avg_loss, accuracy
