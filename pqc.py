@@ -26,6 +26,7 @@ from config import *
 # Optional dependencies
 # ---------------------------------------------------------------------------
 try:
+    # pyrefly: ignore [missing-import]
     import oqs
     PQC_AVAILABLE = True
 except ImportError:
@@ -35,8 +36,11 @@ except ImportError:
               "Install with: pip install liboqs-python")
 
 try:
+    # pyrefly: ignore [missing-import]
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    # pyrefly: ignore [missing-import]
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    # pyrefly: ignore [missing-import]
     from cryptography.hazmat.primitives import hashes as _hashes
     AES_AVAILABLE = True
     HKDF_AVAILABLE = True
