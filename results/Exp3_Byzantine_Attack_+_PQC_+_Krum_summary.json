@@ -1,0 +1,14 @@
+{
+  "final_accuracy": 82.74,
+  "max_accuracy": 82.78,
+  "avg_accuracy": 74.5176,
+  "std_accuracy": 12.428367159043862,
+  "final_loss": 0.14169868133945132,
+  "min_loss": 0.1155089855871299,
+  "avg_loss": 0.19393945704447663,
+  "avg_aggregation_time": 3.0099529457092284,
+  "total_aggregation_time": 150.49764728546143,
+  "avg_valid_updates": 10.0,
+  "total_invalid_updates": 0,
+  "avg_krum_rejected_clients": 5.0
+}

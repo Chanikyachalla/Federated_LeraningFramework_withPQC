@@ -1,0 +1,20 @@
+2026-07-04 17:53:49 | Checkpoint saved -- round 0004 -> model_round_0004.pt
+2026-07-04 18:33:31 | Checkpoint saved -- round 0009 -> model_round_0009.pt
+2026-07-04 19:13:10 | Checkpoint saved -- round 0014 -> model_round_0014.pt
+2026-07-04 19:52:42 | Checkpoint saved -- round 0019 -> model_round_0019.pt
+2026-07-04 19:52:42 | Pruned old checkpoint: model_round_0004.pt
+2026-07-04 20:32:14 | Checkpoint saved -- round 0024 -> model_round_0024.pt
+2026-07-04 20:32:14 | Pruned old checkpoint: model_round_0009.pt
+2026-07-04 21:11:52 | Checkpoint saved -- round 0029 -> model_round_0029.pt
+2026-07-04 21:11:52 | Pruned old checkpoint: model_round_0014.pt
+2026-07-04 21:51:46 | Checkpoint saved -- round 0034 -> model_round_0034.pt
+2026-07-04 21:51:46 | Pruned old checkpoint: model_round_0019.pt
+2026-07-04 22:31:32 | Checkpoint saved -- round 0039 -> model_round_0039.pt
+2026-07-04 22:31:32 | Pruned old checkpoint: model_round_0024.pt
+2026-07-04 23:11:19 | Checkpoint saved -- round 0044 -> model_round_0044.pt
+2026-07-04 23:11:19 | Pruned old checkpoint: model_round_0029.pt
+2026-07-04 23:50:54 | Checkpoint saved -- round 0049 -> model_round_0049.pt
+2026-07-04 23:50:54 | Pruned old checkpoint: model_round_0034.pt
+2026-07-04 23:50:55 | Experiment marked as DONE
+2026-07-05 18:17:48 | Resuming from round 49 (model_round_0049.pt)
+2026-07-05 18:17:49 | Experiment marked as DONE

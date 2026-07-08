@@ -1,0 +1,13 @@
+{
+  "final_accuracy": 78.04,
+  "max_accuracy": 78.53,
+  "avg_accuracy": 70.3334,
+  "std_accuracy": 11.575362907485882,
+  "final_loss": 0.36176380565783883,
+  "min_loss": 0.3237100123630077,
+  "avg_loss": 0.3795925452439436,
+  "avg_aggregation_time": 2.7309079647064207,
+  "total_aggregation_time": 136.54539823532104,
+  "avg_valid_updates": 10.0,
+  "total_invalid_updates": 0
+}
