@@ -73,6 +73,16 @@ TRUST_WARM_UP_ROUNDS = 5        # Rounds before trust filtering activates (plain
 TRUST_TRIM_RATIO = 0.3          # Fraction of extreme-norm updates trimmed as backstop
 NUM_CLASSES = 10                # Number of classes in dataset (for class-wise loss)
 
+# --- OptiGradTrust Enhancements ---
+# Temporal Stability / Variance-Aware Adaptive Alpha (Feature 5, non-IID safe)
+# Trigger: drop must exceed max(DROP_THRESHOLD, SIGMA_MULT × std(history))
+# This protects honest non-IID clients (high natural variance) from being
+# falsely flagged for a bad round, while still catching sleeper attackers
+# whose drop is anomalous relative to their own personal history.
+TRUST_TEMPORAL_DROP_THRESHOLD = 0.25   # Minimum absolute drop to consider suspicious
+TRUST_TEMPORAL_BOOST_ALPHA    = 0.60   # Boosted EMA alpha (softened: 0.60 vs old 0.70)
+TRUST_TEMPORAL_SIGMA_MULT     = 2.0    # Require drop > 2σ of client's own history
+
 # ==================== MANHATTAN DISTANCE ====================
 MANHATTAN_THRESHOLD = 0.5
 
