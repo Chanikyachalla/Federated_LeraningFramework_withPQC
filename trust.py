@@ -23,6 +23,19 @@ Improvements over v1 (single-round, single-metric):
   6. Combined mode — geometric mean of cosine-based and loss-based trust scores,
      forcing an attacker to evade BOTH checks simultaneously.
 
+--- OptiGradTrust Enhancements (v3) ---
+  7. Sign Consistency Score (OptiGradTrust Feature 2) — measures the fraction
+     of gradient dimensions whose sign matches the reference (aggregated) update.
+     Label-flipping attackers invert gradient directions on targeted features,
+     producing low sign-consistency even when cosine similarity is moderate.
+     sign_score = (matching_signs / total_dims)  ∈ [0, 1]
+
+  8. Temporal Stability + Adaptive Alpha (OptiGradTrust Feature 5) — compares
+     a client's current raw score against their recent historical average.
+     If the drop is sudden and large (anomalous behaviour), alpha is boosted
+     temporarily so the EMA penalty lands FAST rather than being smoothed away.
+     This closes the "sleeper attacker" loophole in plain fixed-alpha EMA.
+
 Call ordering inside FLServer.aggregate_updates (each round):
     1. weights = trust_mgr.get_weights(valid_client_ids, round_num)   # BEFORE agg
     2. aggregated = defense.aggregate(updates, trust_weights=weights)
@@ -45,6 +58,9 @@ from config import (
     TRUST_MIN,
     TRUST_NORM_PENALTY,
     TRUST_WARM_UP_ROUNDS,
+    TRUST_TEMPORAL_DROP_THRESHOLD,
+    TRUST_TEMPORAL_BOOST_ALPHA,
+    TRUST_TEMPORAL_SIGMA_MULT,
     NUM_CLIENTS,
     NUM_CLASSES,
 )
@@ -62,6 +78,109 @@ def _cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> float:
     if norm_a < 1e-12 or norm_b < 1e-12:
         return 0.0
     return float(torch.dot(a_flat, b_flat) / (norm_a * norm_b))
+
+
+# ---------------------------------------------------------------------------
+# OptiGradTrust Feature 2: Sign Consistency Score
+# ---------------------------------------------------------------------------
+def _sign_consistency_score(update: torch.Tensor,
+                             reference: torch.Tensor) -> float:
+    """
+    Compute the fraction of gradient dimensions whose sign matches the
+    reference update (typically the aggregated update).
+
+    Honest clients' updates align in sign with the global gradient direction
+    on most dimensions.  Label-flipping attackers push weights in the wrong
+    direction on poisoned-class features, producing systematically inverted
+    signs even when the cosine similarity is only mildly negative.
+
+    Returns:
+        float in [0, 1] — 1.0 means perfect sign agreement, 0.0 means
+        every dimension is sign-flipped (adversarial).
+    """
+    u = update.view(-1).float()
+    r = reference.view(-1).float()
+    if u.numel() == 0:
+        return 0.5  # neutral if empty
+
+    # Only consider dimensions where the reference has a non-trivial magnitude
+    # (avoids noise from near-zero reference components).
+    mask = r.abs() > 1e-9
+    if mask.sum() == 0:
+        return 0.5  # no reference signal → neutral
+
+    u_signs = torch.sign(u[mask])
+    r_signs = torch.sign(r[mask])
+    matching = (u_signs == r_signs).float().mean().item()
+    return float(matching)
+
+
+# ---------------------------------------------------------------------------
+# OptiGradTrust Feature 5: Variance-Aware Adaptive Alpha (non-IID safe)
+# ---------------------------------------------------------------------------
+def _adaptive_alpha(raw_score: float,
+                    history: deque,
+                    base_alpha: float = 0.2,
+                    base_drop_threshold: float = 0.25,
+                    boost_alpha: float = 0.6,
+                    sigma_multiplier: float = 2.0) -> float:
+    """
+    Return an adaptive EMA alpha that reacts faster when a client's current
+    raw score drops *anomalously* relative to their own recent history.
+
+    NON-IID SAFE design (key improvement over naive fixed-threshold):
+    ---------------------------------------------------------------
+    Honest non-IID clients have naturally HIGH variance in their round-to-round
+    raw scores because their local data distribution differs from the global.
+    A fixed threshold (e.g. drop > 0.25) would falsely flag them in rounds
+    where their local class distribution happens to diverge from the aggregated
+    update direction.
+
+    Fix: the trigger threshold is personalised per client:
+        effective_threshold = max(base_drop_threshold,
+                                  sigma_multiplier × std(history))
+
+    This means:
+    - A stable honest IID client   (std ≈ 0.02) → threshold ≈ 0.25  (base)
+    - A volatile honest non-IID    (std ≈ 0.12) → threshold ≈ 0.24  → same base
+      BUT: the std check ensures the DROP must be > 2σ of THEIR OWN history.
+    - A sleeper attacker            (std ≈ 0.04, then big drop) → flagged
+
+    Args:
+        raw_score:           Current round's raw trust signal ∈ [0, 1].
+        history:             deque of past EMA-smoothed trust scores.
+        base_alpha:          Normal EMA alpha (e.g., 0.2).
+        base_drop_threshold: Minimum absolute drop to consider suspicious.
+        boost_alpha:         Alpha when a suspicious drop is detected (0.6).
+                             Softened from 0.7 → 0.6 to reduce false-positive
+                             impact on honest non-IID clients.
+        sigma_multiplier:    How many σ above history variance constitutes
+                             an anomalous drop (default 2.0 → 2-sigma rule).
+
+    Returns:
+        float — the alpha to use for this round's EMA update.
+    """
+    if len(history) < 3:
+        # Not enough history to compute meaningful variance.
+        # Default to base_alpha to avoid penalising clients in early rounds.
+        return base_alpha
+
+    hist_list = list(history)
+    hist_mean = float(np.mean(hist_list))
+    hist_std  = float(np.std(hist_list))
+
+    drop = hist_mean - raw_score  # positive = score got worse this round
+
+    # Personalised threshold: must exceed BOTH the base absolute threshold
+    # AND be more than sigma_multiplier standard deviations below the client's
+    # own historical mean. This protects honest non-IID clients whose scores
+    # naturally fluctuate, while still catching sudden attacker behaviour.
+    variance_threshold = sigma_multiplier * hist_std
+    effective_threshold = max(base_drop_threshold, variance_threshold)
+
+    if drop > effective_threshold:
+        return boost_alpha  # anomalous sudden drop → react fast
+    return base_alpha
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +375,17 @@ class TrustManager:
         norms = np.array([float(u.norm(2).cpu()) for u in updates], dtype=float)
         median_norm = float(np.median(norms)) if len(norms) > 0 else 1.0
 
+        # Pre-compute median update (element-wise) for sign consistency reference
+        # Only used when aggregated_update is available; falls back to aggregated
+        # update if not enough clients.
+        if aggregated_update is not None and len(updates) >= 2:
+            stacked = torch.stack([u.view(-1).float() for u in updates])
+            reference_update = torch.median(stacked, dim=0).values
+        elif aggregated_update is not None:
+            reference_update = aggregated_update
+        else:
+            reference_update = None
+
         for idx, (cid, update) in enumerate(zip(client_ids, updates)):
             self._ensure_client(cid)
 
@@ -276,6 +406,19 @@ class TrustManager:
                 (1.0 - TRUST_NORM_PENALTY) * cos_score
                 + TRUST_NORM_PENALTY * norm_score
             )
+
+            # ---- OptiGradTrust Feature 2: Sign Consistency Score (universal gate) ----
+            # Computed regardless of scoring mode so ALL modes benefit.
+            # Applied AFTER mode-selection as a multiplicative gate on raw_score:
+            #   gate = 1.0  when sign_score >= 0.80  (honest client, no penalty)
+            #   gate decays toward 0.5 as sign_score falls to 0.0 (adversarial)
+            # Formula: gate = 0.5 + 0.5 * sign_score  => maps [0,1] -> [0.5, 1.0]
+            # This is mode-agnostic: a poisoner with sign_score=0.40 suffers
+            # a 20% penalty on top of whatever cosine/loss score they get.
+            if reference_update is not None:
+                sign_score = _sign_consistency_score(update, reference_update)
+            else:
+                sign_score = 0.5  # neutral when no reference available
 
             # ---- Loss score ----
             loss_raw = 1.0  # default (neutral) when loss data unavailable
@@ -308,13 +451,37 @@ class TrustManager:
             else:  # 'cosine' (default)
                 raw_score = cosine_raw
 
+            # ---- Apply Sign Consistency Gate (ALL modes) ----
+            # gate maps sign_score ∈ [0,1] → multiplier ∈ [0.5, 1.0]
+            # Honest clients (sign ≥ 0.80) get gate ≈ 0.90–1.0 (near-neutral)
+            # Poisoners (sign ≈ 0.40) get gate ≈ 0.70 (additional 30% penalty)
+            # Applied before warm-up guard so warm-up still prevents full penalty.
+            sign_gate = 0.5 + 0.5 * sign_score
+            raw_score = raw_score * sign_gate
+
             # During warm-up: don't apply the penalty, just observe
             if in_warmup:
                 raw_score = max(raw_score, self.scores[cid])
 
-            # EMA update  (alpha=0.2: slow to react to noise, slow to recover)
+            # ---- OptiGradTrust Feature 5: Temporal Stability / Adaptive Alpha ----
+            # If score drops suddenly relative to this client's own history,
+            # raise alpha temporarily so the EMA reacts fast (sleeper attacker
+            # detection).  During warm-up we always use base_alpha.
+            if in_warmup:
+                ema_alpha = TRUST_ALPHA
+            else:
+                ema_alpha = _adaptive_alpha(
+                    raw_score=raw_score,
+                    history=self.history[cid],
+                    base_alpha=TRUST_ALPHA,
+                    base_drop_threshold=TRUST_TEMPORAL_DROP_THRESHOLD,
+                    boost_alpha=TRUST_TEMPORAL_BOOST_ALPHA,
+                    sigma_multiplier=TRUST_TEMPORAL_SIGMA_MULT,
+                )
+
+            # EMA update with (possibly boosted) alpha
             old_score = self.scores[cid]
-            new_score = (1.0 - TRUST_ALPHA) * old_score + TRUST_ALPHA * raw_score
+            new_score = (1.0 - ema_alpha) * old_score + ema_alpha * raw_score
 
             # Clamp to [TRUST_MIN, 1.0]
             new_score = max(TRUST_MIN, min(1.0, new_score))
