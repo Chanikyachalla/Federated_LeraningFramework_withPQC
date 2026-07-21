@@ -1,0 +1,56 @@
+========================================================================
+  POST-QUANTUM CRYPTOGRAPHY (PQC) - SECURITY SIMULATION REPORT
+  Generated : 2026-07-21 13:00:09
+  Mode      : Real liboqs ML-KEM-768 + ML-DSA-65
+========================================================================
+
+PHASE 0 - Legitimate Communication
+------------------------------------------------------------------------
+  Shared secret match : True
+  Signature valid     : True
+  Decryption correct  : True
+  Status              : Communication completed successfully
+
+ATTACK SIMULATION RESULTS
+------------------------------------------------------------------------
+  #    Attack Scenario                                            Result
+  --------------------------------------------------------------------
+  1    Brute-Force Key Recovery (10,000 attempts)              PASS [OK]
+        -> 0 / 10,000 random AES-256 keys decrypted successfully.
+        -> Exhausting 2^256 at 133,736 tries/sec would take ~10^68
+        -> years.
+  2    MITM Eavesdrop - Read ciphertext without server secret key  PASS [OK]
+        -> AES-GCM raised InvalidTag. Wrong shared secret => wrong AES
+        -> key => auth tag mismatch.
+  3    MITM KEM Substitution - Replace KEM ciphertext          PASS [OK]
+        -> Substituted ct => wrong decapsulated SS => AES-GCM
+        -> InvalidTag raised.
+  4    MITM Payload Bit-flip - Tamper with ciphertext          PASS [OK]
+        -> Byte[618] flipped (XOR 0xFF) => AES-GCM InvalidTag raised
+        -> immediately.
+  5    MITM Signature Forgery - Forge without private key      PASS [OK]
+        -> All 3 forgery strategies rejected by ML-DSA-65 verify().
+  6    Replay Attack - Old round 3 packet in round 9           PASS [OK]
+        -> Bound msg round=9 differs from signed round=3 => invalid
+        -> sig.
+  7    AAD Binding - Client impersonation via wrong client_id  PASS [OK]
+        -> client_id bound as GCM AAD. Wrong client_id =>
+        -> authentication tag mismatch.
+  --------------------------------------------------------------------
+
+  VERDICT: ALL 7 ATTACK SCENARIOS DEFEATED - PQC IS WORKING [OK]
+
+  Total time  : 0.09s
+  Passed      : 7 / 7
+  Failed      : 0 / 7
+
+CRYPTOGRAPHIC ALGORITHMS
+------------------------------------------------------------------------
+  Key Encapsulation : ML-KEM-768  (NIST FIPS 203)  Kyber-768
+  Digital Signature : ML-DSA-65   (NIST FIPS 204)  Dilithium-3
+  Symmetric Cipher  : AES-256-GCM (NIST SP 800-38D)
+  Key Derivation    : HKDF-SHA256 (RFC 5869 / NIST SP 800-227)
+  liboqs available  : True
+  AES-GCM available : True
+
+========================================================================
