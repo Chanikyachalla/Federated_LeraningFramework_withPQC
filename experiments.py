@@ -414,8 +414,33 @@ def run_experiment_12():
     return runner.run()
 
 
+def run_experiment_13():
+    """
+    Experiment 13: Data Poisoning + PQC + OptiGradTrust Combined
+
+    Identical scenario to Exp12 but registered under a new name so it
+    gets its own fresh checkpoint directory and result files — bypassing
+    any cached Exp12 checkpoint that would otherwise cause auto-resume.
+
+    New methods active (added to trust.py):
+      - Sign Consistency Gate  : multiplicative gate on ALL scoring modes
+      - Variance-Aware Adaptive Alpha : personalised per-client EMA speed
+    """
+    config = {
+        'name': 'Exp13: Data Poisoning + PQC + OptiGradTrust (Sign + Adaptive Alpha)',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'fedavg',
+        'pqc_enabled': True,
+        'trust_enabled': True,
+        'trust_scoring_method': 'combined'
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
 def run_all_experiments():
-    """Run all 12 experiments"""
+    """Run all 13 experiments"""
     print("\n" + "="*80)
     print("RUNNING ALL EXPERIMENTS FOR POST-QUANTUM SECURE FEDERATED LEARNING")
     print("="*80)
@@ -435,6 +460,7 @@ def run_all_experiments():
         ("Exp10", run_experiment_10),
         ("Exp11", run_experiment_11),
         ("Exp12", run_experiment_12),
+        ("Exp13", run_experiment_13),
     ]
     
     for exp_name, exp_func in experiments:
