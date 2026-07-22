@@ -212,6 +212,15 @@ EXPERIMENTS = {
         'pqc_enabled': True,
         'trust_enabled': True,
         'trust_scoring_method': 'combined'
+    },
+    'exp13': {
+        'name': 'Exp13: Data Poisoning + PQC + OptiGradTrust (Sign + Adaptive Alpha)',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'fedavg',
+        'pqc_enabled': True,
+        'trust_enabled': True,
+        'trust_scoring_method': 'combined'
     }
 }
 

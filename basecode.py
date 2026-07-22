@@ -11,10 +11,11 @@ import sys
 import argparse
 from pathlib import Path
 from experiments import (
-    run_experiment_1, run_experiment_2, run_experiment_3,
-    run_experiment_4, run_experiment_5, run_experiment_6,
-    run_experiment_7, run_experiment_8, run_experiment_9,
-    run_experiment_10, run_all_experiments
+    run_experiment_1,  run_experiment_2,  run_experiment_3,
+    run_experiment_4,  run_experiment_5,  run_experiment_6,
+    run_experiment_7,  run_experiment_8,  run_experiment_9,
+    run_experiment_10, run_experiment_11, run_experiment_12,
+    run_experiment_13, run_all_experiments
 )
 
 
@@ -26,8 +27,8 @@ def main():
     parser.add_argument(
         '--experiment',
         type=int,
-        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-        help='Run specific experiment (1-10)'
+        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+        help='Run specific experiment (1-13)'
     )
     parser.add_argument(
         '--all',
@@ -72,33 +73,39 @@ def main():
         run_all_experiments()
     elif args.experiment:
         experiment_funcs = {
-            1: run_experiment_1,
-            2: run_experiment_2,
-            3: run_experiment_3,
-            4: run_experiment_4,
-            5: run_experiment_5,
-            6: run_experiment_6,
-            7: run_experiment_7,
-            8: run_experiment_8,
-            9: run_experiment_9,
+            1:  run_experiment_1,
+            2:  run_experiment_2,
+            3:  run_experiment_3,
+            4:  run_experiment_4,
+            5:  run_experiment_5,
+            6:  run_experiment_6,
+            7:  run_experiment_7,
+            8:  run_experiment_8,
+            9:  run_experiment_9,
             10: run_experiment_10,
+            11: run_experiment_11,
+            12: run_experiment_12,
+            13: run_experiment_13,
         }
         experiment_funcs[args.experiment]()
     else:
         print("Please specify an experiment to run:")
-        print("  python basecode.py --experiment 1-10  (Run specific experiment)")
-        print("  python basecode.py --all               (Run all 10 experiments)")
+        print("  python basecode.py --experiment 1-13  (Run specific experiment)")
+        print("  python basecode.py --all               (Run all 13 experiments)")
         print("\nExperiments:")
-        print("  1: Clean FL + FedAvg")
-        print("  2: Byzantine Attack + FedAvg")
-        print("  3: Byzantine Attack + Krum")
-        print("  4: Data Poisoning + FedAvg")
-        print("  5: Data Poisoning + Krum")
-        print("  6: Byzantine Attack + PQC + FedAvg")
-        print("  7: Byzantine Attack + PQC + Krum")
-        print("  8: Byzantine Attack + Manhattan Distance")
-        print("  9: Data Poisoning + Manhattan Distance")
+        print("  1:  Clean FL + FedAvg")
+        print("  2:  Byzantine Attack + FedAvg")
+        print("  3:  Byzantine Attack + Krum")
+        print("  4:  Data Poisoning + FedAvg")
+        print("  5:  Data Poisoning + Krum")
+        print("  6:  Byzantine Attack + PQC + FedAvg")
+        print("  7:  Byzantine Attack + PQC + Krum")
+        print("  8:  Byzantine Attack + Manhattan Distance")
+        print("  9:  Data Poisoning + Manhattan Distance")
         print("  10: Byzantine Attack + PQC + Manhattan Distance")
+        print("  11: Data Poisoning + PQC + Loss-Based Trust")
+        print("  12: Data Poisoning + PQC + Combined Trust (old)")
+        print("  13: Data Poisoning + PQC + OptiGradTrust [Sign + Adaptive Alpha] ← NEW")
 
 
 if __name__ == '__main__':
