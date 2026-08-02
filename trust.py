@@ -36,10 +36,47 @@ Improvements over v1 (single-round, single-metric):
      temporarily so the EMA penalty lands FAST rather than being smoothed away.
      This closes the "sleeper attacker" loophole in plain fixed-alpha EMA.
 
+--- v4 fixes (this file) ---
+  Diagnosed against Exp10/11/12 results (~78% acc) vs. Exp7 undefended FedAvg
+  (84.48%) and Exp9 Manhattan (84.0%) on the SAME attack (3/10 clients, 50%
+  local label flip). The gap was NOT caused by trust scoring being too weak —
+  it was caused by two things stacked on top of it:
+
+  9. Self-referential norm baseline — the old norm-ratio penalty compared a
+     client's update norm only to the CURRENT round's cross-client median.
+     Under Dirichlet non-IID splits, honest clients' norms legitimately vary
+     round to round for reasons that have nothing to do with poisoning. This
+     blends in each client's OWN historical norm as a second reference so a
+     client isn't punished just for looking different from the group when
+     that's actually just their normal data distribution.
+
+  10. Score sharpening — raw scores for the mild attack in this dataset (30%
+      of clients, 50%-local-flip) clustered in a narrow 0.86-0.996 band, which
+      after normalisation barely down-weights anyone. A monotonic exponent
+      (>1) is applied post sign-gate so scores near 1.0 are left almost
+      untouched while scores that are already below it are pushed down much
+      further — widening the effective separation between honest and
+      suspicious clients without re-ranking anyone.
+
+  11. Trust-GATED trimming (replaces the old norm-rank trimmed-mean backstop)
+      — the previous backstop in federated_learning.py discarded the
+      lowest-norm AND highest-norm TRUST_TRIM_RATIO (30%) of clients EVERY
+      round, by norm rank, regardless of trust score and regardless of
+      warm-up round. With NUM_CLIENTS=10 that throws away 6/10 clients'
+      updates unconditionally — the single largest cause of the accuracy gap.
+      get_trim_ids() replaces it: it only excludes a client if its EMA trust
+      score is a statistically significant outlier (z-score + minimum
+      absolute-gap test) relative to the rest of the cohort THIS round, never
+      during warm-up, and never more than 40% of the cohort. When the group
+      looks homogeneous (no confidently-identified attacker), it trims no one
+      — matching the empirical fact that "do nothing" already beats the old
+      backstop on this attack.
+
 Call ordering inside FLServer.aggregate_updates (each round):
-    1. weights = trust_mgr.get_weights(valid_client_ids, round_num)   # BEFORE agg
-    2. aggregated = defense.aggregate(updates, trust_weights=weights)
-    3. trust_mgr.update_scores(...)                                    # AFTER agg
+    1. weights   = trust_mgr.get_weights(valid_client_ids, round_num)   # BEFORE agg
+    2. trim_ids  = trust_mgr.get_trim_ids(valid_client_ids, round_num)  # BEFORE agg
+    3. aggregated = defense.aggregate(kept_updates, trust_weights=kept_weights)
+    4. trust_mgr.update_scores(...)                                    # AFTER agg
 """
 
 import math
@@ -64,6 +101,34 @@ from config import (
     NUM_CLIENTS,
     NUM_CLASSES,
 )
+
+# --- v4 additions -----------------------------------------------------------
+# Add these to config.py. Safe defaults are used here via getattr-on-module so
+# this file still runs as a drop-in even before config.py is edited.
+import config as _cfg
+
+TRUST_SHARPEN_EXPONENT = getattr(_cfg, 'TRUST_SHARPEN_EXPONENT', 2.5)
+# ^ >1 widens the gap between honest (~1.0, barely moved) and suspicious
+#   (pulled down disproportionately) scores. 1.0 = no change (old behaviour).
+
+TRUST_TRIM_Z_THRESHOLD = getattr(_cfg, 'TRUST_TRIM_Z_THRESHOLD', 1.25)
+# ^ A client is only a trim candidate if its score is more than this many
+#   standard deviations below the round's mean score across the cohort.
+
+TRUST_TRIM_MIN_GAP = getattr(_cfg, 'TRUST_TRIM_MIN_GAP', 0.05)
+# ^ AND the absolute gap (mean - client_score) must exceed this. Prevents
+#   trimming when everyone's score is nearly identical (homogeneous / no
+#   confidently-identified attacker present).
+
+TRUST_TRIM_MAX_FRACTION = getattr(_cfg, 'TRUST_TRIM_MAX_FRACTION', 0.4)
+# ^ Safety cap: never trim more than this fraction of the cohort in one round,
+#   even if many clients cross the z-score threshold.
+
+SELF_NORM_BLEND = getattr(_cfg, 'SELF_NORM_BLEND', 0.5)
+# ^ 0 = purely cross-client median norm ratio (old behaviour).
+#   1 = purely each client's own historical norm baseline.
+#   0.5 = blend of both, so natural non-IID norm variation across the COHORT
+#   doesn't get conflated with a client suddenly deviating from ITSELF.
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +383,12 @@ class TrustManager:
         self.history: Dict[int, deque] = {
             cid: deque(maxlen=TRUST_WINDOW) for cid in ids
         }
+        # v4: each client's own recent update-norm history, used as a second
+        # baseline so a client isn't punished purely for looking different
+        # from the group when that's just its normal non-IID data volume/mix.
+        self.norm_history: Dict[int, deque] = {
+            cid: deque(maxlen=TRUST_WINDOW) for cid in ids
+        }
         self._validation_pool: Optional[Dict] = None
 
     # ------------------------------------------------------------------
@@ -400,7 +471,19 @@ class TrustManager:
 
             # Norm-ratio penalty
             client_norm = float(update.norm(2).cpu())
-            ratio = (client_norm / median_norm) if median_norm > 1e-12 else 1.0
+
+            # ---- v4: blend cross-client and self-historical norm baselines ----
+            cross_ratio = (client_norm / median_norm) if median_norm > 1e-12 else 1.0
+            hist = self.norm_history[cid]
+            if len(hist) >= 3:
+                self_median = float(np.median(list(hist)))
+                self_ratio = (client_norm / self_median) if self_median > 1e-12 else 1.0
+            else:
+                self_ratio = cross_ratio  # not enough history yet -> fall back
+            ratio = (SELF_NORM_BLEND * self_ratio
+                     + (1.0 - SELF_NORM_BLEND) * cross_ratio)
+            self.norm_history[cid].append(client_norm)
+
             norm_score = math.exp(-((ratio - 1.0) ** 2) / 0.5)
             cosine_raw = (
                 (1.0 - TRUST_NORM_PENALTY) * cos_score
@@ -458,6 +541,15 @@ class TrustManager:
             # Applied before warm-up guard so warm-up still prevents full penalty.
             sign_gate = 0.5 + 0.5 * sign_score
             raw_score = raw_score * sign_gate
+
+            # ---- v4: Score sharpening ----
+            # raw_score in [0,1]; exponent > 1 leaves near-1.0 scores almost
+            # untouched (0.99 -> ~0.975) but pulls already-lower scores down
+            # much further (0.85 -> ~0.67, 0.5 -> ~0.18). This widens the gap
+            # between honest and suspicious clients that the old linear
+            # combination collapsed into a narrow ~0.86-0.996 band, WITHOUT
+            # changing the ranking (still monotonic).
+            raw_score = raw_score ** TRUST_SHARPEN_EXPONENT
 
             # During warm-up: don't apply the penalty, just observe
             if in_warmup:
@@ -543,6 +635,66 @@ class TrustManager:
             return [1.0] * len(client_ids)
         return [2.0 - self.scores.get(cid, TRUST_MIN) for cid in client_ids]
 
+    def get_trim_ids(self, client_ids: List[int],
+                     round_num: int = 9999) -> set:
+        """
+        v4 replacement for the old norm-rank trimmed-mean backstop.
+
+        The old backstop in federated_learning.py trimmed the
+        TRUST_TRIM_RATIO highest- and lowest-NORM clients every round,
+        unconditionally -- with NUM_CLIENTS=10 and TRUST_TRIM_RATIO=0.3 that
+        discards 6/10 clients' updates every single round, including during
+        warm-up, regardless of whether any of them are actually malicious.
+        That is very likely the single largest cause of the ~6-8 point
+        accuracy gap vs. undefended FedAvg on this dataset's attack.
+
+        This version only excludes a client when its trust score is a
+        statistically meaningful outlier THIS round:
+          1. Never trims during warm-up rounds (matches the documented design
+             intent that warm-up = plain FedAvg).
+          2. A client is a trim candidate only if:
+               z = (mean_score - client_score) / std_score > TRUST_TRIM_Z_THRESHOLD
+             AND
+               (mean_score - client_score) > TRUST_TRIM_MIN_GAP
+             i.e. it must be BOTH a relative outlier AND an absolute one --
+             this is what lets the method trim nobody when the cohort looks
+             homogeneous (no confidently-identified attacker), which is
+             exactly the situation this framework's data-poisoning attack
+             configuration mostly produces.
+          3. Safety cap at TRUST_TRIM_MAX_FRACTION of the cohort, so a noisy
+             round can't accidentally gut the aggregate.
+
+        Returns:
+            Set of client_ids to exclude from this round's aggregation.
+        """
+        if round_num < TRUST_WARM_UP_ROUNDS:
+            return set()
+
+        scores = np.array([self.scores.get(cid, TRUST_MIN) for cid in client_ids],
+                          dtype=float)
+        if len(scores) < 4:
+            return set()  # too few clients to make a confident statistical call
+
+        mean_score = float(scores.mean())
+        std_score = float(scores.std())
+        if std_score < 1e-6:
+            return set()  # homogeneous scores -> no confident suspects
+
+        suspects = set()
+        for cid, s in zip(client_ids, scores):
+            gap = mean_score - s
+            z = gap / std_score
+            if z > TRUST_TRIM_Z_THRESHOLD and gap > TRUST_TRIM_MIN_GAP:
+                suspects.add(cid)
+
+        max_trim = int(len(client_ids) * TRUST_TRIM_MAX_FRACTION)
+        if len(suspects) > max_trim:
+            # Keep only the most extreme outliers up to the cap
+            ranked = sorted(suspects, key=lambda cid: self.scores.get(cid, TRUST_MIN))
+            suspects = set(ranked[:max_trim])
+
+        return suspects
+
     def get_manhattan_weights(self, client_ids: List[int],
                               round_num: int = 9999) -> np.ndarray:
         """
@@ -575,3 +727,5 @@ class TrustManager:
         if client_id not in self.scores:
             self.scores[client_id] = 1.0
             self.history[client_id] = deque(maxlen=TRUST_WINDOW)
+        if client_id not in self.norm_history:
+            self.norm_history[client_id] = deque(maxlen=TRUST_WINDOW)
