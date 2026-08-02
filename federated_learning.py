@@ -426,21 +426,16 @@ class FLServer:
             aggregated, stats = self.defense.aggregate(
                 updates, valid_client_ids, trust_weights=tw
             )
-        else:  # fedavg — apply trimmed-mean backstop then trust-weighted average
+        else:  # fedavg — trust-gated trim, not norm-rank
             tw = tm.get_weights(valid_client_ids, round_num) if tm else None
-            if tm is not None and len(updates) > 3:
-                # Trimmed-mean backstop: remove extreme-norm outliers first
-                trim_k = max(1, int(len(updates) * _cfg.TRUST_TRIM_RATIO))
-                stacked = torch.stack(updates)
-                norms = stacked.norm(dim=1)
-                sorted_idx = torch.argsort(norms)
-                keep_idx = sorted_idx[trim_k: len(updates) - trim_k]
-                if len(keep_idx) >= 1:
-                    kept_updates = [updates[i] for i in keep_idx.tolist()]
-                    kept_ids = [valid_client_ids[i] for i in keep_idx.tolist()]
+            if tm is not None:
+                trim_ids = tm.get_trim_ids(valid_client_ids, round_num)
+                print(f"Round {round_num}: trimming {trim_ids}")
+                if trim_ids:
+                    kept_updates = [u for cid, u in zip(valid_client_ids, updates) if cid not in trim_ids]
+                    kept_ids = [cid for cid in valid_client_ids if cid not in trim_ids]
                     kept_weights = tm.get_weights(kept_ids, round_num)
-                    aggregated = self.defense.aggregate(kept_updates,
-                                                       trust_weights=kept_weights)
+                    aggregated = self.defense.aggregate(kept_updates, trust_weights=kept_weights)
                 else:
                     aggregated = self.defense.aggregate(updates, trust_weights=tw)
             else:
