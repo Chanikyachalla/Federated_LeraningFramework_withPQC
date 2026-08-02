@@ -83,6 +83,13 @@ TRUST_TEMPORAL_DROP_THRESHOLD = 0.25   # Minimum absolute drop to consider suspi
 TRUST_TEMPORAL_BOOST_ALPHA    = 0.60   # Boosted EMA alpha (softened: 0.60 vs old 0.70)
 TRUST_TEMPORAL_SIGMA_MULT     = 2.0    # Require drop > 2σ of client's own history
 
+# --- v4 additions ---
+TRUST_SHARPEN_EXPONENT   = 2.5   # widens the honest/suspicious score gap
+TRUST_TRIM_Z_THRESHOLD   = 1.25  # how many std-devs below mean = outlier
+TRUST_TRIM_MIN_GAP       = 0.05  # minimum absolute score gap to trim on
+TRUST_TRIM_MAX_FRACTION  = 0.4   # safety cap: never trim more than 40%
+SELF_NORM_BLEND          = 0.5   # cross-client vs. self-history norm blend
+
 # ==================== MANHATTAN DISTANCE ====================
 MANHATTAN_THRESHOLD = 0.5
 
@@ -215,6 +222,15 @@ EXPERIMENTS = {
     },
     'exp13': {
         'name': 'Exp13: Data Poisoning + PQC + OptiGradTrust (Sign + Adaptive Alpha)',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'fedavg',
+        'pqc_enabled': True,
+        'trust_enabled': True,
+        'trust_scoring_method': 'combined'
+    },
+    'exp14': {
+        'name': 'Exp14: Data Poisoning + PQC + OptiGradTrust v4 (Sharpening + Trust-Gated Trim)',
         'byzantine_enabled': False,
         'data_poisoning_enabled': True,
         'defense': 'fedavg',
