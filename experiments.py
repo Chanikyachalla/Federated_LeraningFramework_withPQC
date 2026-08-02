@@ -439,8 +439,40 @@ def run_experiment_13():
     return runner.run()
 
 
+def run_experiment_14():
+    """
+    Experiment 14: Data Poisoning + PQC + OptiGradTrust v4
+                   (Sharpening + Trust-Gated Trim)
+
+    Identical attack scenario to Exp13 but registered under a new name so
+    it gets its own fresh checkpoint directory — bypassing any cached
+    Exp13 checkpoint that would otherwise skip training entirely.
+
+    v4 additions now active (trust.py + config.py):
+      - Score sharpening       : raw_score ** TRUST_SHARPEN_EXPONENT (2.5)
+                                 widens the honest/suspicious gap
+      - Self-referential norm  : SELF_NORM_BLEND (0.5) blends cross-client
+                                 and per-client historical norms so honest
+                                 non-IID clients aren't mis-penalised
+      - Trust-gated trimming   : get_trim_ids() replaces the old norm-rank
+                                 backstop; trims nobody unless a client is a
+                                 statistically significant outlier this round
+    """
+    config = {
+        'name': 'Exp14: Data Poisoning + PQC + OptiGradTrust v4 (Sharpening + Trust-Gated Trim)',
+        'byzantine_enabled': False,
+        'data_poisoning_enabled': True,
+        'defense': 'fedavg',
+        'pqc_enabled': True,
+        'trust_enabled': True,
+        'trust_scoring_method': 'combined'
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
 def run_all_experiments():
-    """Run all 13 experiments"""
+    """Run all 14 experiments"""
     print("\n" + "="*80)
     print("RUNNING ALL EXPERIMENTS FOR POST-QUANTUM SECURE FEDERATED LEARNING")
     print("="*80)
@@ -461,6 +493,7 @@ def run_all_experiments():
         ("Exp11", run_experiment_11),
         ("Exp12", run_experiment_12),
         ("Exp13", run_experiment_13),
+        ("Exp14", run_experiment_14),
     ]
     
     for exp_name, exp_func in experiments:

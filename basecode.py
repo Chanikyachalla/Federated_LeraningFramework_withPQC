@@ -15,7 +15,7 @@ from experiments import (
     run_experiment_4,  run_experiment_5,  run_experiment_6,
     run_experiment_7,  run_experiment_8,  run_experiment_9,
     run_experiment_10, run_experiment_11, run_experiment_12,
-    run_experiment_13, run_all_experiments
+    run_experiment_13, run_experiment_14, run_all_experiments
 )
 
 
@@ -27,8 +27,8 @@ def main():
     parser.add_argument(
         '--experiment',
         type=int,
-        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-        help='Run specific experiment (1-13)'
+        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+        help='Run specific experiment (1-14)'
     )
     parser.add_argument(
         '--all',
@@ -86,12 +86,13 @@ def main():
             11: run_experiment_11,
             12: run_experiment_12,
             13: run_experiment_13,
+            14: run_experiment_14,
         }
         experiment_funcs[args.experiment]()
     else:
         print("Please specify an experiment to run:")
-        print("  python basecode.py --experiment 1-13  (Run specific experiment)")
-        print("  python basecode.py --all               (Run all 13 experiments)")
+        print("  python basecode.py --experiment 1-14  (Run specific experiment)")
+        print("  python basecode.py --all               (Run all 14 experiments)")
         print("\nExperiments:")
         print("  1:  Clean FL + FedAvg")
         print("  2:  Byzantine Attack + FedAvg")
@@ -105,7 +106,8 @@ def main():
         print("  10: Byzantine Attack + PQC + Manhattan Distance")
         print("  11: Data Poisoning + PQC + Loss-Based Trust")
         print("  12: Data Poisoning + PQC + Combined Trust (old)")
-        print("  13: Data Poisoning + PQC + OptiGradTrust [Sign + Adaptive Alpha] ← NEW")
+        print("  13: Data Poisoning + PQC + OptiGradTrust [Sign + Adaptive Alpha]")
+        print("  14: Data Poisoning + PQC + OptiGradTrust v4 [Sharpening + Trust-Gated Trim] ← NEW")
 
 
 if __name__ == '__main__':
