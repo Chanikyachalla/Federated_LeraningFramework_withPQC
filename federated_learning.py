@@ -404,9 +404,11 @@ class FLServer:
         """
         Aggregate valid updates using the chosen defense mechanism.
 
-        Includes trimmed-mean backstop when trust is enabled:
-        the top/bottom TRUST_TRIM_RATIO of updates by L2 norm are removed
-        before trust-weighted averaging, giving defense-in-depth.
+        When trust is enabled (fedavg branch), uses trust-gated trimming:
+        get_trim_ids() excludes clients whose EMA trust score is a statistically
+        significant outlier this round (z-score + min-gap test), then applies
+        trust-weighted averaging over the remaining clients. Most rounds trim
+        nobody — the correct behaviour when no attacker is confidently identified.
 
         Returns:
             (aggregated_update_tensor, aggregation_stats)
