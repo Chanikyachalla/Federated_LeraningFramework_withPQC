@@ -60,7 +60,21 @@ If `liboqs-python` is not available, the framework will use mock implementations
 pip install -r requirements.txt
 ```
 
-### 3. Project Structure
+### 3. Download the CIFAR-10 Dataset
+The experiments require the CIFAR-10 data files to be present in the data directory before you run anything.
+
+- Download the required dataset files from the shared Google Drive link and place them in the data folder.
+- If the files are provided as an archive, extract them so the expected folder structure is available under data/.
+- Typical expected contents are:
+  - data/cifar-10-batches-py/
+  - data/cifar-10-python.tar.gz (if your setup uses the archive version)
+
+If you are sharing this project with teammates, make sure they download and extract the dataset into the same data directory before running the experiments.
+
+> Replace the placeholder below with your actual Google Drive link when you want to share it with collaborators:
+> Google Drive: https://drive.google.com/drive/folders/1064Nd8Zphyu7dZmtOT8sntz7HV4I_ja8?usp=sharing
+
+### 4. Project Structure
 ```
 btp/
 ├── basecode.py                  # Main entry point
