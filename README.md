@@ -71,8 +71,8 @@ The experiments require the CIFAR-10 data files to be present in the data direct
 
 If you are sharing this project with teammates, make sure they download and extract the dataset into the same data directory before running the experiments.
 
-> Replace the placeholder below with your actual Google Drive link when you want to share it with collaborators:
-> Google Drive: https://drive.google.com/drive/folders/1064Nd8Zphyu7dZmtOT8sntz7HV4I_ja8?usp=sharing
+
+#### Google Drive: https://drive.google.com/drive/folders/1064Nd8Zphyu7dZmtOT8sntz7HV4I_ja8?usp=sharing
 
 ### 4. Project Structure
 ```
