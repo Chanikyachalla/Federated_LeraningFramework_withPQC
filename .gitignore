@@ -1,3 +1,5 @@
 __pycache__/
 cmake_portable/
 mingw_portable/
+
+cifar-10-batches-py/
