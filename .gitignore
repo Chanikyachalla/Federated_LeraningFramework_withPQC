@@ -1,3 +1,8 @@
 __pycache__/
 cmake_portable/
 mingw_portable/
+<<<<<<< HEAD
+=======
+
+cifar-10-batches-py/
+>>>>>>> f5d28a71b127bf5a16d9d1b2bf10f5b21742fbfc

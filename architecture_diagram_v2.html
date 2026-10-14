@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Federated Learning with PQC and Trust-Based Defense - Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', sans-serif;
+  background: #0a0d14;
+  color: #e8ecf4;
+  min-height: 100vh;
+  padding: 20px;
+}
+.page-title { text-align: center; margin-bottom: 18px; }
+.page-title h1 {
+  font-size: 20px; font-weight: 800;
+  background: linear-gradient(90deg, #38bdf8, #818cf8, #f472b6);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  margin-bottom: 5px;
+}
+.page-title p { font-size: 12px; color: #64748b; }
+.arch-grid {
+  display: grid;
+  grid-template-columns: 250px 210px 1fr 210px;
+  gap: 10px; align-items: start;
+}
+.panel { border-radius: 10px; padding: 12px; border: 1.5px solid; }
+.panel-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; margin-bottom: 10px; padding: 5px 8px;
+  border-radius: 5px; text-align: center;
+}
+.panel-clients { background: #0f1c2e; border-color: #1e40af; }
+.panel-clients .panel-title { background: #1e3a8a; color: #93c5fd; }
+.panel-pqc { background: #150d2a; border-color: #6d28d9; }
+.panel-pqc .panel-title { background: #4c1d95; color: #c4b5fd; }
+.panel-trust { background: #1a1106; border-color: #d97706; }
+.panel-trust .panel-title { background: #92400e; color: #fcd34d; }
+.panel-agg { background: #0f1e0f; border-color: #16a34a; }
+.panel-agg .panel-title { background: #14532d; color: #86efac; }
+.step-box { border-radius: 7px; padding: 9px 11px; margin-bottom: 7px; border: 1px solid; font-size: 10.5px; line-height: 1.5; }
+.step-num { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px; }
+.step-title { font-size: 11px; font-weight: 700; margin-bottom: 5px; }
+.step-kem { background: #1e0f3a; border-color: #7c3aed; }
+.step-kem .step-num { color: #a78bfa; } .step-kem .step-title { color: #c4b5fd; }
+.step-aes { background: #1a0d35; border-color: #6d28d9; }
+.step-aes .step-num { color: #a78bfa; } .step-aes .step-title { color: #c4b5fd; }
+.step-dsa { background: #1c1040; border-color: #5b21b6; }
+.step-dsa .step-num { color: #a78bfa; } .step-dsa .step-title { color: #c4b5fd; }
+.step-cos { background: #1a1106; border-color: #b45309; }
+.step-cos .step-num { color: #fcd34d; } .step-cos .step-title { color: #fbbf24; }
+.step-sign { background: #1a0f06; border-color: #c2410c; }
+.step-sign .step-num { color: #fb923c; } .step-sign .step-title { color: #fdba74; }
+.step-loss { background: #14100a; border-color: #92400e; }
+.step-loss .step-num { color: #fcd34d; } .step-loss .step-title { color: #fbbf24; }
+.step-ema { background: #1c150a; border-color: #d97706; }
+.step-ema .step-num { color: #fde68a; }
+.step-trim { background: #160e04; border-color: #b45309; }
+.step-trim .step-num { color: #fcd34d; } .step-trim .step-title { color: #fbbf24; }
+.step-fedavg { background: #0a1f0a; border-color: #15803d; }
+.step-fedavg .step-num { color: #4ade80; } .step-fedavg .step-title { color: #86efac; }
+.step-krum { background: #0a1a1f; border-color: #0369a1; }
+.step-krum .step-num { color: #38bdf8; } .step-krum .step-title { color: #7dd3fc; }
+.step-manhattan { background: #1f140a; border-color: #c2410c; }
+.step-manhattan .step-num { color: #fb923c; } .step-manhattan .step-title { color: #fdba74; }
+.client-row { display: flex; gap: 5px; margin-bottom: 7px; }
+.client-box { flex: 1; border-radius: 7px; padding: 7px; border: 1px solid; font-size: 9.5px; line-height: 1.45; text-align: center; }
+.client-benign { background: #0a1f1f; border-color: #0f766e; }
+.client-benign .client-name { color: #2dd4bf; font-weight: 700; font-size: 10px; margin-bottom: 3px; }
+.client-malicious { background: #1f0a0a; border-color: #991b1b; }
+.client-malicious .client-name { color: #f87171; font-weight: 700; font-size: 10px; margin-bottom: 3px; }
+.update-row { display: flex; gap: 5px; margin: 3px 0 7px; }
+.update-tag { flex: 1; text-align: center; font-size: 9.5px; font-weight: 600; padding: 3px 3px; border-radius: 4px; }
+.update-benign { background: #134e4a; color: #2dd4bf; border: 1px solid #0f766e; }
+.update-malicious { background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
+.formula {
+  font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+  background: rgba(0,0,0,0.35); border-radius: 4px;
+  padding: 4px 7px; margin: 4px 0; white-space: pre-wrap; line-height: 1.55;
+}
+.formula-orange { color: #fcd34d; }
+.formula-green { color: #86efac; }
+.formula-blue { color: #7dd3fc; }
+.formula-purple { color: #c4b5fd; }
+.legend { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.legend-item { display: flex; align-items: center; gap: 3px; font-size: 9.5px; font-weight: 500; }
+.legend-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.section-label {
+  font-size: 8.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.09em; color: #64748b; margin: 7px 0 3px;
+  border-bottom: 1px solid #1e293b; padding-bottom: 2px;
+}
+.trust-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.bottom-bar {
+  margin-top: 14px; background: #0f172a; border: 1px solid #1e293b;
+  border-radius: 9px; padding: 9px 14px; display: flex;
+  align-items: center; justify-content: center; gap: 12px; font-size: 10.5px; color: #94a3b8; flex-wrap: wrap;
+}
+.bottom-bar span { font-weight: 600; color: #cbd5e1; }
+ul.detail-list { padding-left: 11px; list-style: disc; }
+ul.detail-list li { margin-bottom: 2px; color: #cbd5e1; }
+.highlight { color: #fbbf24; font-weight: 600; }
+.highlight-green { color: #4ade80; font-weight: 600; }
+.highlight-purple { color: #a78bfa; font-weight: 600; }
+.highlight-red { color: #f87171; font-weight: 600; }
+.combined-box { background: #1c1c0a; border: 1.5px solid #ca8a04; border-radius: 7px; padding: 9px 11px; margin-top: 7px; }
+.combined-title { font-size: 10.5px; font-weight: 700; color: #fbbf24; margin-bottom: 5px; }
+.global-update-box {
+  background: linear-gradient(135deg, #0f2e0f, #0a2020);
+  border: 2px solid #22c55e; border-radius: 9px; padding: 12px; margin-top: 7px; text-align: center;
+}
+.global-update-box .global-title { font-size: 12px; font-weight: 700; color: #4ade80; margin-bottom: 7px; }
+.arrow-down { text-align: center; font-size: 16px; color: #475569; margin: 3px 0; }
+.mt4 { margin-top: 4px; }
+.security-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 9px; margin-top: 12px; }
+.sec-card { border-radius: 7px; padding: 9px; border: 1px solid; }
+</style>
+</head>
+<body>
+<div class="page-title">
+  <h1>&#x1F510; Federated Learning with Post-Quantum Cryptography &amp; Trust-Based Defense</h1>
+  <p>Complete System Architecture &mdash; Client Training &rarr; PQC Layer &rarr; OptiGradTrust v4 Defense &rarr; Secure Aggregation</p>
+</div>
+<div class="arch-grid">
+  <!-- PANEL 1: CLIENT SIDE -->
+  <div class="panel panel-clients">
+    <div class="panel-title">&#x1F5A5;&#xFE0F; CLIENT SIDE &mdash; Local Training &amp; PQC Encryption</div>
+    <div class="section-label">&#x2705; Benign Clients</div>
+    <div class="client-row">
+      <div class="client-box client-benign">
+        <div class="client-name">Client 1</div>
+        &#x1F9E0; CNN Model<br>
+        <span style="color:#94a3b8">Local Data</span><br>
+        Non-IID, Dirichlet &alpha;<br>
+        CIFAR-10<br>
+        <span style="color:#5eead4">SGD + Cosine LR</span><br>
+        Nesterov Momentum
+      </div>
+      <div class="client-box client-benign">
+        <div class="client-name">Client 2</div>
+        &#x1F9E0; CNN Model<br>
+        <span style="color:#94a3b8">Local Data</span><br>
+        Non-IID, Dirichlet &alpha;<br>
+        CIFAR-10<br>
+        <span style="color:#5eead4">SGD + Cosine LR</span><br>
+        Nesterov Momentum
+      </div>
+      <div class="client-box client-benign">
+        <div class="client-name">Client N</div>
+        &#x1F9E0; CNN Model<br>
+        <span style="color:#94a3b8">Local Data</span><br>
+        Non-IID, Dirichlet &alpha;<br>
+        CIFAR-10<br>
+        <span style="color:#5eead4">SGD + Cosine LR</span><br>
+        Nesterov Momentum
+      </div>
+    </div>
+    <div class="update-row">
+      <div class="update-tag update-benign">&darr; Update u&#x2081;</div>
+      <div class="update-tag update-benign">&darr; Update u&#x2082;</div>
+      <div class="update-tag update-benign">&darr; Update u&#x2099;</div>
+    </div>
+    <div class="section-label">&#x26A0;&#xFE0F; Malicious Clients</div>
+    <div class="client-row">
+      <div class="client-box client-malicious">
+        <div class="client-name">Byzantine C1</div>
+        &#x26A0;&#xFE0F; Sign-flip Attack<br>
+        Gaussian Noise<br>
+        <span style="color:#fca5a5">Scaled Updates</span>
+      </div>
+      <div class="client-box client-malicious">
+        <div class="client-name">Poison Client</div>
+        &#x26A0;&#xFE0F; Label Flipping<br>
+        50% local flip<br>
+        <span style="color:#fca5a5">Data Poisoning</span>
+      </div>
+      <div class="client-box client-malicious">
+        <div class="client-name">Sybil Client K</div>
+        &#x26A0;&#xFE0F; Collusion<br>
+        Coordinated<br>
+        <span style="color:#fca5a5">Malicious &uuml;&#x1D62;</span>
+      </div>
+    </div>
+    <div class="update-row">
+      <div class="update-tag update-malicious">&darr; Malicious &uuml;&#x2081;</div>
+      <div class="update-tag update-malicious">&darr; Malicious &uuml;&#x2082;</div>
+      <div class="update-tag update-malicious">&darr; Malicious &uuml;&#x2096;</div>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#0f766e"></div> Benign Client</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#991b1b"></div> Malicious Client</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#134e4a"></div> Benign Update</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#450a0a"></div> Malicious Update</div>
+    </div>
+  </div>
+  <!-- PANEL 2: PQC LAYER -->
+  <div class="panel panel-pqc">
+    <div class="panel-title">&#x1F512; POST-QUANTUM CRYPTOGRAPHY LAYER</div>
+    <div class="step-box step-kem">
+      <div class="step-num">&#x1F511; Step 1 &mdash; Key Encapsulation</div>
+      <div class="step-title">ML-KEM-768 (Kyber)</div>
+      <ul class="detail-list">
+        <li>Server generates KEM keypair <span class="highlight-purple">(pk, sk)</span></li>
+        <li>Client: <span class="highlight-purple">(kem_ct, ss) = encap(pk)</span></li>
+        <li>Server: <span class="highlight-purple">ss = decap(sk, kem_ct)</span></li>
+        <li>ss &rarr; HKDF-SHA256 &rarr; AES-256 key</li>
+        <li>Quantum-resistant vs Shor/Grover</li>
+      </ul>
+      <div class="formula formula-purple">pk: 1184B | sk: 2400B | ct: 1088B</div>
+    </div>
+    <div class="arrow-down">&blacktriangledown;</div>
+    <div class="step-box step-aes">
+      <div class="step-num">&#x1F510; Step 2 &mdash; Encryption</div>
+      <div class="step-title">AES-256-GCM</div>
+      <ul class="detail-list">
+        <li><span class="highlight-purple">nonce</span> = random 12 bytes</li>
+        <li><span class="highlight-purple">AAD</span> = client_id &Vert; round_num</li>
+        <li><span class="highlight-purple">ct</span> = AES-GCM(key, update, AAD)</li>
+        <li>GCM tag &rarr; integrity + auth</li>
+        <li>AAD mismatch &rarr; InvalidTag error</li>
+      </ul>
+    </div>
+    <div class="arrow-down">&blacktriangledown;</div>
+    <div class="step-box step-dsa">
+      <div class="step-num">&#x270D;&#xFE0F; Step 3 &mdash; Digital Signature</div>
+      <div class="step-title">ML-DSA-65 (Dilithium)</div>
+      <ul class="detail-list">
+        <li>Payload = <span class="highlight-purple">client_id &Vert; round_num &Vert; kem_ct &Vert; nonce &Vert; ciphertext</span></li>
+        <li><span class="highlight-purple">&sigma; = DSA_sign(sk, payload)</span></li>
+        <li>Prevents replay / reorder / impersonation</li>
+        <li>Server verifies before decryption</li>
+      </ul>
+      <div class="formula formula-purple">pk: 1952B | sk: 4032B | &sigma;: 2420B</div>
+    </div>
+    <div class="arrow-down">&blacktriangledown;</div>
+    <div class="step-box" style="background:#1a1030;border-color:#7c3aed;text-align:center;">
+      <div style="font-size:9.5px;font-weight:700;color:#c4b5fd;margin-bottom:3px;">&#x1F4E6; EncryptedUpdate Object</div>
+      <div class="formula formula-purple">{ client_id, kem_ct,
+  nonce, ciphertext,
+  signature &sigma;,
+  round_num, timestamp }</div>
+    </div>
+  </div>
+  <!-- PANEL 3: SERVER TRUST MECHANISM -->
+  <div class="panel panel-trust">
+    <div class="panel-title">&#x1F6E1;&#xFE0F; SERVER &mdash; OptiGradTrust v4 Defense Mechanism</div>
+    <div class="trust-grid">
+      <!-- LEFT COLUMN -->
+      <div>
+        <div class="section-label">1) Cosine + Norm-Based Trust</div>
+        <div class="step-box step-cos">
+          <div class="step-num">&#x1F4D0; Cosine Similarity Score</div>
+          <div class="step-title">Direction Alignment</div>
+          <div class="formula formula-orange">cos_score =
+  (cos(u&#x1D62;, &uml;u) + 1) / 2
+
+&uml;u = element-wise median update
+Maps cosine[-1,1] &rarr; [0,1]</div>
+        </div>
+        <div class="step-box step-cos">
+          <div class="step-num">&#x1F4CF; Blended Norm-Ratio Penalty</div>
+          <div class="step-title">Self + Cross-Client Baseline</div>
+          <div class="formula formula-orange">cross_ratio = &Vert;u&#x1D62;&Vert; / median(&Vert;u&#x2C7C;&Vert;)
+self_ratio  = &Vert;u&#x1D62;&Vert; / median(own hist)
+ratio = 0.5&times;self + 0.5&times;cross
+
+norm_score = exp(-(ratio-1)&sup2; / 0.5)</div>
+          <ul class="detail-list">
+            <li>Self-blend prevents non-IID false penalty</li>
+            <li>Gaussian peak at ratio=1 (normal)</li>
+          </ul>
+        </div>
+        <div class="step-box step-cos">
+          <div class="step-num">&#x26A1; Cosine Raw Score</div>
+          <div class="step-title">Combined Gradient Score</div>
+          <div class="formula formula-orange">cosine_raw =
+  (1-&lambda;)&times;cos_score + &lambda;&times;norm_score
+
+&lambda; = TRUST_NORM_PENALTY</div>
+        </div>
+      </div>
+      <!-- RIGHT COLUMN -->
+      <div>
+        <div class="section-label">2) Sign Consistency Gate + Loss</div>
+        <div class="step-box step-sign">
+          <div class="step-num">&#x1F6A6; Sign Consistency Score</div>
+          <div class="step-title">Gradient Direction Gate</div>
+          <div class="formula">sign_score =
+  matching_signs / total_dims
+
+gate = 0.5 + 0.5 &times; sign_score
+     &isin; [0.5, 1.0]</div>
+          <ul class="detail-list">
+            <li><span class="highlight-green">Honest (sign&ge;0.80): gate&asymp;0.90&ndash;1.0</span></li>
+            <li><span class="highlight-red">Attacker (sign&asymp;0.40): gate&asymp;0.70</span></li>
+            <li>Applied to ALL scoring modes</li>
+          </ul>
+        </div>
+        <div class="step-box step-loss">
+          <div class="step-num">&#x1F4C9; Loss-Based Trust Score</div>
+          <div class="step-title">Validation Loss Evaluation</div>
+          <div class="formula formula-orange">loss_raw =
+  exp(-10 &times; &Delta;loss / base_loss)
+
+if &Delta;loss &le; 0: mild recovery &times;1.05
+if concentrated spike: &times;0.5</div>
+          <ul class="detail-list">
+            <li>Stratified rotating validation set</li>
+            <li>Per-class loss decomposition</li>
+            <li>Detects label-flip signature</li>
+          </ul>
+        </div>
+        <div class="step-box step-loss">
+          <div class="step-num">&#x1F500; Combined Score</div>
+          <div class="step-title">Geometric Mean (Dual-Check)</div>
+          <div class="formula formula-orange">raw_score =
+  &radic;(cosine_raw &times; loss_raw)
+
+Forces attacker to evade BOTH
+cosine + loss checks</div>
+        </div>
+      </div>
+    </div>
+    <!-- Score Sharpening + EMA -->
+    <div class="combined-box">
+      <div class="combined-title">&#x2699;&#xFE0F; Score Sharpening + Adaptive EMA Update</div>
+      <div class="trust-grid">
+        <div>
+          <div class="step-box step-ema" style="margin-bottom:0">
+            <div class="step-num">&#x1F3AF; Score Sharpening (v4)</div>
+            <div class="formula formula-orange">raw_score = raw_score ^ 2.5
+
+Honest (0.99&rarr;0.975): unchanged
+Suspicious (0.85&rarr;0.67): pulled down
+Widens gap, monotonic (no re-rank)</div>
+          </div>
+        </div>
+        <div>
+          <div class="step-box step-ema" style="margin-bottom:0">
+            <div class="step-num">&#x1F4C8; Adaptive Alpha EMA</div>
+            <div class="formula formula-orange">if drop &gt; max(0.25, 2&sigma;_hist):
+  &alpha; = 0.6  (fast reaction)
+else:
+  &alpha; = 0.2  (smooth)
+
+T&#x1D62; = (1-&alpha;)&times;T&#x1D62;_old + &alpha;&times;raw_score
+Clamp T&#x1D62; &isin; [TRUST_MIN, 1.0]</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Trust-gated trimming -->
+    <div class="step-box step-trim mt4">
+      <div class="step-num">&#x2702;&#xFE0F; Trust-Gated Trimming (v4 &mdash; replaces norm-rank backstop)</div>
+      <div class="step-title">Statistical Outlier Exclusion</div>
+      <div class="trust-grid">
+        <div class="formula formula-orange">z = (mean_T &minus; T&#x1D62;) / std_T
+
+Exclude client if:
+  z &gt; 1.25 (z-threshold)
+  AND gap &gt; 0.05 (absolute)</div>
+        <ul class="detail-list">
+          <li>Max trim: <span class="highlight">40%</span> of cohort</li>
+          <li>No trim during <span class="highlight">warm-up rounds</span></li>
+          <li>Trim nobody when cohort is homogeneous</li>
+          <li>Replaces old norm-rank that discarded 60% unconditionally</li>
+        </ul>
+      </div>
+    </div>
+    <!-- Trust output -->
+    <div class="step-box" style="background:#0f1c0f;border-color:#15803d;margin-top:7px">
+      <div class="step-num" style="color:#4ade80">&#x1F4CA; Trust Weight Output</div>
+      <div class="formula formula-green">Normalised: T&#x303;&#x1D62; = T&#x1D62; / &sum;&#x2C7C; T&#x2C7C;
+
+FedAvg    &rarr; trust_weights [T&#x303;&#x2081;, T&#x303;&#x2082;, &hellip;, T&#x303;&#x2099;]
+Krum      &rarr; krum_modifiers [2 &minus; T&#x2081;, &hellip;]
+Manhattan &rarr; trust_weights [T&#x2081;, &hellip;, T&#x2099;]</div>
+    </div>
+  </div>
+  <!-- PANEL 4: AGGREGATION -->
+  <div class="panel panel-agg">
+    <div class="panel-title">&#x2699;&#xFE0F; FINAL AGGREGATION</div>
+    <div class="step-box step-fedavg">
+      <div class="step-num">A &mdash; FedAvg + Trust</div>
+      <div class="step-title">Trust-Weighted Average</div>
+      <div class="formula formula-green">w_combined =
+  w&#x1D62; &times; T&#x1D62; (element-wise)
+&rarr; normalize to sum=1
+
+&Delta;W = &sum;&#x1D62; w_combined_i &times; u&#x1D62;</div>
+      <ul class="detail-list">
+        <li>Low-trust clients auto down-weighted</li>
+        <li>Honest non-IID clients protected</li>
+      </ul>
+    </div>
+    <div class="step-box step-krum">
+      <div class="step-num">B &mdash; Krum + Trust Modifiers</div>
+      <div class="step-title">Byzantine-Resilient Selection</div>
+      <div class="formula formula-blue">krum_score(i) =
+  &sum; dist&sup2;(u&#x1D62;, u&#x2C7C;)
+  for n-f-2 nearest neighbours
+
+modifier = 2 &minus; T&#x1D62;
+  (low trust &rarr; higher score)
+&rarr; penalised in ranking
+
+Select m lowest-score updates</div>
+      <ul class="detail-list">
+        <li>Multi-Krum selects top-m updates</li>
+        <li>Trust biases selection from attackers</li>
+      </ul>
+    </div>
+    <div class="step-box step-manhattan">
+      <div class="step-num">C &mdash; Manhattan Distance + Trust</div>
+      <div class="step-title">L1-Distance Outlier Weighting</div>
+      <div class="formula">dist_L1(u&#x1D62;, &uml;u_median)
+
+if dist &gt; &mu; + &sigma;_factor &times; &sigma;:
+  weight_i &times;= 0.5 (outlier)
+
+final_weight_i =
+  outlier_weight &times; T&#x1D62; (trust)</div>
+      <ul class="detail-list">
+        <li>Reduces outlier contributions</li>
+        <li>Trust further down-weights suspects</li>
+        <li>Robust to Byzantine noise</li>
+      </ul>
+    </div>
+    <div class="global-update-box">
+      <div class="global-title">&#x1F310; Global Model Update</div>
+      <div class="formula formula-green">w_global(t+1) =
+  w_global(t) + &Delta;W_aggregated</div>
+      <div style="font-size:10.5px;color:#94a3b8;margin-top:7px">
+        &darr; Broadcast updated global model to all clients<br>
+        <span style="color:#4ade80;font-weight:600">&rarr; Start Next Round</span>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- BOTTOM BAR -->
+<div class="bottom-bar">
+  <span>&#x1F504; FL Round Flow:</span>
+  <span style="color:#2dd4bf">1. Local Training</span> &rarr;
+  <span style="color:#a78bfa">2. PQC Encrypt + Sign</span> &rarr;
+  <span style="color:#fbbf24">3. Server Decrypt + Verify Sig</span> &rarr;
+  <span style="color:#fbbf24">4. Trust Score Computation</span> &rarr;
+  <span style="color:#4ade80">5. Trust-Weighted Aggregation</span> &rarr;
+  <span style="color:#60a5fa">6. Global Model Update</span> &rarr;
+  <span style="color:#94a3b8">Repeat for NUM_ROUNDS</span>
+</div>
+<!-- SECURITY PROPERTIES -->
+<div class="security-grid">
+  <div class="sec-card" style="background:#150d2a;border-color:#6d28d9;">
+    <div style="font-size:10.5px;font-weight:700;color:#c4b5fd;margin-bottom:3px">&#x1F510; Confidentiality</div>
+    <div style="font-size:9.5px;color:#94a3b8">ML-KEM-768 key encapsulation + AES-256-GCM symmetric encryption. Forward-secret session keys per FL round.</div>
+  </div>
+  <div class="sec-card" style="background:#0a1f0a;border-color:#15803d;">
+    <div style="font-size:10.5px;font-weight:700;color:#86efac;margin-bottom:3px">&#x2705; Integrity + Auth</div>
+    <div style="font-size:9.5px;color:#94a3b8">AES-GCM with AAD (client_id &Vert; round_num). Tampered ciphertext detected via InvalidTag error.</div>
+  </div>
+  <div class="sec-card" style="background:#1a1106;border-color:#d97706;">
+    <div style="font-size:10.5px;font-weight:700;color:#fcd34d;margin-bottom:3px">&#x270D;&#xFE0F; Non-Repudiation</div>
+    <div style="font-size:9.5px;color:#94a3b8">ML-DSA-65 signs bound payload. Prevents replay, reorder, and impersonation attacks across rounds.</div>
+  </div>
+  <div class="sec-card" style="background:#0a1a1f;border-color:#0369a1;">
+    <div style="font-size:10.5px;font-weight:700;color:#7dd3fc;margin-bottom:3px">&#x1F6E1;&#xFE0F; Byzantine Resilience</div>
+    <div style="font-size:9.5px;color:#94a3b8">OptiGradTrust v4: cosine + norm + sign gate + loss + adaptive EMA + trust-gated trimming.</div>
+  </div>
+</div>
+</body>
+</html>

@@ -16,11 +16,11 @@ class CIFAR10Dataset:
     CIFAR-10 dataset with non-IID Dirichlet distribution for federated learning
     """
     
-    def __init__(self, data_dir='./data', alpha=DIRICHLET_ALPHA, num_clients=NUM_CLIENTS):
+    def __init__(self, data_dir='./data', alpha=DIRICHLET_ALPHA, num_clients=NUM_CLIENTS, seed=None):
         self.data_dir = data_dir
         self.alpha = alpha
         self.num_clients = num_clients
-        self.random_seed = RANDOM_SEED
+        self.random_seed = RANDOM_SEED if seed is None else seed
         
         np.random.seed(self.random_seed)
         torch.manual_seed(self.random_seed)

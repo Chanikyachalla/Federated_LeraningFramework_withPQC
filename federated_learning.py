@@ -254,14 +254,18 @@ class FLServer:
     def __init__(self, model: CIFAR10CNN,
                  defense_name: str = DEFENSE_METHOD,
                  device: str = DEVICE,
-                 trust_enabled: bool = None):
+                 trust_enabled: bool = None,
+                 trust_scoring_method: Optional[str] = None,
+                 trust_manager: Optional[TrustManager] = None):
         """
         Args:
-            model:         Global model
-            defense_name:  'fedavg', 'krum', or 'manhattan'
-            device:        Device string
-            trust_enabled: Override TRUST_SCORE_ENABLED from config.
-                           Defaults to the config value if None.
+            model:                Global model
+            defense_name:         'fedavg', 'krum', or 'manhattan'
+            device:               Device string
+            trust_enabled:        Override TRUST_SCORE_ENABLED from config.
+                                  Defaults to the config value if None.
+            trust_scoring_method: Trust scoring method ('combined', 'cosine', 'loss').
+            trust_manager:        Explicit TrustManager instance if already constructed.
         """
         self.model = model
         self.device = device
@@ -269,9 +273,14 @@ class FLServer:
 
         # Trust scoring
         _trust_on = _cfg.TRUST_SCORE_ENABLED if trust_enabled is None else trust_enabled
-        self.trust_manager: Optional[TrustManager] = (
-            TrustManager() if _trust_on else None
-        )
+        if trust_manager is not None:
+            self.trust_manager: Optional[TrustManager] = trust_manager
+        elif _trust_on:
+            self.trust_manager: Optional[TrustManager] = TrustManager(
+                scoring_method=trust_scoring_method
+            )
+        else:
+            self.trust_manager: Optional[TrustManager] = None
 
         # Pass trust manager to the defense factory for attachment
         self.defense = create_defense(defense_name,

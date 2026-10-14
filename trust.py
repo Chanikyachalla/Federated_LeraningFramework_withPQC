@@ -377,8 +377,10 @@ class TrustManager:
         Stratified validation pool built on first use.
     """
 
-    def __init__(self, client_ids: Optional[List[int]] = None):
+    def __init__(self, client_ids: Optional[List[int]] = None,
+                 scoring_method: Optional[str] = None):
         ids = client_ids if client_ids is not None else list(range(NUM_CLIENTS))
+        self.scoring_method = scoring_method
         self.scores: Dict[int, float] = {cid: 1.0 for cid in ids}
         self.history: Dict[int, deque] = {
             cid: deque(maxlen=TRUST_WINDOW) for cid in ids
@@ -460,7 +462,7 @@ class TrustManager:
         for idx, (cid, update) in enumerate(zip(client_ids, updates)):
             self._ensure_client(cid)
 
-            method = TRUST_SCORING_METHOD
+            method = self.scoring_method if self.scoring_method is not None else TRUST_SCORING_METHOD
 
             # ---- Cosine score ----
             if aggregated_update is not None:

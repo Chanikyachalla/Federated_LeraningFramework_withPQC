@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 2026-07-07 07:35:35 | Experiment started: Exp12: Data Poisoning + PQC + Combined Trust
 2026-07-07 07:43:08 | Round 0001 | TrainLoss=0.5802 | TestLoss=2.0511 | Accuracy=23.55%
 2026-07-07 07:50:38 | Round 0002 | TrainLoss=0.5524 | TestLoss=1.7640 | Accuracy=35.96%
@@ -51,3 +52,9 @@
 2026-07-07 13:52:50 | Round 0050 | TrainLoss=0.3607 | TestLoss=0.8175 | Accuracy=78.61%
 2026-07-07 13:52:50 | Metrics saved to C:\Users\General\Downloads\BTP_TBFL_PQC\Federated_LeraningFramework_withPQC\results
 2026-07-07 13:52:51 | Plots saved to C:\Users\General\Downloads\BTP_TBFL_PQC\Federated_LeraningFramework_withPQC\results
+=======
+2026-07-21 16:02:15 | Experiment started: Exp12: Data Poisoning + PQC + Combined Trust
+2026-07-21 16:56:20 | Metrics restored from checkpoint (50 rounds)
+2026-07-21 16:56:20 | Metrics saved to C:\Users\General\Downloads\BTP_TBFL_PQC\Federated_LeraningFramework_withPQC\results
+2026-07-21 16:56:21 | Plots saved to C:\Users\General\Downloads\BTP_TBFL_PQC\Federated_LeraningFramework_withPQC\results
+>>>>>>> f5d28a71b127bf5a16d9d1b2bf10f5b21742fbfc

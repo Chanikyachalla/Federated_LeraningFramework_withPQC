@@ -16,3 +16,8 @@
 2026-07-07 13:52:50 | Checkpoint saved -- round 0049 -> model_round_0049.pt
 2026-07-07 13:52:50 | Pruned old checkpoint: model_round_0034.pt
 2026-07-07 13:52:51 | Experiment marked as DONE
+<<<<<<< HEAD
+=======
+2026-07-21 16:56:20 | Resuming from round 49 (model_round_0049.pt)
+2026-07-21 16:56:21 | Experiment marked as DONE
+>>>>>>> f5d28a71b127bf5a16d9d1b2bf10f5b21742fbfc

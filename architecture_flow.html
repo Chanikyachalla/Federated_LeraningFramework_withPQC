@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PQC Federated Learning — Complete Architecture Flow</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0a0d14;--bg2: #0f1320;--bg3: #141928;--card: #181f30;--card2: #1e2640;
+      --border: #242d44;--border2: #2d3a58;
+      --blue:#4f8ef7;--blue2:#2d6ef0;--cyan:#22d3ee;--green:#34d399;--green2:#059669;
+      --teal:#2dd4bf;--purple:#a78bfa;--purple2:#7c3aed;--pink:#f472b6;
+      --amber:#fbbf24;--orange:#fb923c;--red:#f87171;
+      --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;overflow-x:hidden;}
+    body::before{content:'';position:fixed;inset:0;z-index:0;background:radial-gradient(ellipse 80% 60% at 20% 10%,rgba(79,142,247,.06) 0%,transparent 60%),radial-gradient(ellipse 60% 40% at 80% 90%,rgba(167,139,250,.07) 0%,transparent 55%),radial-gradient(ellipse 50% 50% at 50% 50%,rgba(34,211,238,.03) 0%,transparent 70%);pointer-events:none;}
+    .wrapper{position:relative;z-index:1;max-width:1400px;margin:0 auto;padding:40px 24px 80px;}
+
+    .header{text-align:center;margin-bottom:60px;}
+    .header-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.3);border-radius:999px;padding:6px 18px;font-size:12px;font-weight:600;color:var(--blue);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:20px;animation:pulseGlow 3s ease-in-out infinite;}
+    @keyframes pulseGlow{0%,100%{box-shadow:0 0 0 0 rgba(79,142,247,0);}50%{box-shadow:0 0 16px 3px rgba(79,142,247,.3);}}
+    .header h1{font-size:clamp(28px,4vw,52px);font-weight:800;line-height:1.15;background:linear-gradient(135deg,#e2e8f0 0%,#93c5fd 45%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:14px;}
+    .header p{font-size:16px;color:var(--text2);max-width:680px;margin:0 auto;line-height:1.7;}
+
+    .section-label{display:flex;align-items:center;gap:12px;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:20px;margin-top:48px;}
+    .section-label::before,.section-label::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--border2),transparent);}
+
+    .flow{display:flex;flex-direction:column;gap:0;}
+
+    .phase{border:1px solid var(--border);border-radius:20px;background:var(--card);overflow:hidden;margin-bottom:6px;transition:transform .2s,box-shadow .2s;animation:slideUp .4s ease both;}
+    .phase:hover{transform:translateY(-2px);}
+    @keyframes slideUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+    .phase:nth-child(1){animation-delay:.05s;}.phase:nth-child(2){animation-delay:.10s;}.phase:nth-child(3){animation-delay:.15s;}.phase:nth-child(4){animation-delay:.20s;}.phase:nth-child(5){animation-delay:.25s;}.phase:nth-child(6){animation-delay:.30s;}.phase:nth-child(7){animation-delay:.35s;}
+
+    .phase-header{display:flex;align-items:center;gap:16px;padding:20px 28px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;}
+    .phase-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+    .phase-num{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);}
+    .phase-title{font-size:18px;font-weight:700;color:var(--text);}
+    .phase-subtitle{font-size:13px;color:var(--text2);margin-top:2px;}
+    .phase-chevron{margin-left:auto;color:var(--text3);font-size:18px;transition:transform .3s;}
+    .phase.open .phase-chevron{transform:rotate(180deg);}
+    .phase-body{display:none;padding:28px;}
+    .phase.open .phase-body{display:block;}
+
+    .steps{display:flex;flex-direction:column;gap:0;}
+    .step-row{display:flex;align-items:flex-start;gap:0;}
+    .step-connector{display:flex;flex-direction:column;align-items:center;width:48px;flex-shrink:0;}
+    .step-dot{width:14px;height:14px;border-radius:50%;flex-shrink:0;box-shadow:0 0 8px currentColor;}
+    .step-line{width:2px;flex:1;min-height:24px;background:linear-gradient(180deg,var(--border2) 0%,transparent 100%);}
+    .step-card{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin-bottom:12px;transition:border-color .2s,box-shadow .2s;}
+    .step-title{font-size:14px;font-weight:600;margin-bottom:6px;}
+    .step-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+    .step-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+    .tag{font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;font-family:'JetBrains Mono',monospace;letter-spacing:.5px;}
+
+    .phase-1 .phase-header{background:linear-gradient(90deg,rgba(79,142,247,.08),transparent);}.phase-1 .phase-icon{background:rgba(79,142,247,.15);color:var(--blue);}.phase-1 .phase-num{color:var(--blue);}.phase-1 .step-dot{background:var(--blue);color:var(--blue);}.phase-1 .step-card:hover{border-color:rgba(79,142,247,.4);box-shadow:0 0 20px rgba(79,142,247,.35);}
+    .phase-2 .phase-header{background:linear-gradient(90deg,rgba(34,211,238,.08),transparent);}.phase-2 .phase-icon{background:rgba(34,211,238,.15);color:var(--cyan);}.phase-2 .phase-num{color:var(--cyan);}.phase-2 .step-dot{background:var(--cyan);color:var(--cyan);}.phase-2 .step-card:hover{border-color:rgba(34,211,238,.4);box-shadow:0 0 20px rgba(34,211,238,.35);}
+    .phase-3 .phase-header{background:linear-gradient(90deg,rgba(167,139,250,.08),transparent);}.phase-3 .phase-icon{background:rgba(167,139,250,.15);color:var(--purple);}.phase-3 .phase-num{color:var(--purple);}.phase-3 .step-dot{background:var(--purple);color:var(--purple);}.phase-3 .step-card:hover{border-color:rgba(167,139,250,.4);box-shadow:0 0 20px rgba(167,139,250,.35);}
+    .phase-4 .phase-header{background:linear-gradient(90deg,rgba(251,191,36,.08),transparent);}.phase-4 .phase-icon{background:rgba(251,191,36,.15);color:var(--amber);}.phase-4 .phase-num{color:var(--amber);}.phase-4 .step-dot{background:var(--amber);color:var(--amber);}.phase-4 .step-card:hover{border-color:rgba(251,191,36,.4);box-shadow:0 0 20px rgba(251,191,36,.35);}
+    .phase-5 .phase-header{background:linear-gradient(90deg,rgba(244,114,182,.08),transparent);}.phase-5 .phase-icon{background:rgba(244,114,182,.15);color:var(--pink);}.phase-5 .phase-num{color:var(--pink);}.phase-5 .step-dot{background:var(--pink);color:var(--pink);}.phase-5 .step-card:hover{border-color:rgba(244,114,182,.4);box-shadow:0 0 20px rgba(244,114,182,.35);}
+    .phase-6 .phase-header{background:linear-gradient(90deg,rgba(52,211,153,.08),transparent);}.phase-6 .phase-icon{background:rgba(52,211,153,.15);color:var(--green);}.phase-6 .phase-num{color:var(--green);}.phase-6 .step-dot{background:var(--green);color:var(--green);}.phase-6 .step-card:hover{border-color:rgba(52,211,153,.4);box-shadow:0 0 20px rgba(52,211,153,.35);}
+    .phase-7 .phase-header{background:linear-gradient(90deg,rgba(45,212,191,.08),transparent);}.phase-7 .phase-icon{background:rgba(45,212,191,.15);color:var(--teal);}.phase-7 .phase-num{color:var(--teal);}.phase-7 .step-dot{background:var(--teal);color:var(--teal);}.phase-7 .step-card:hover{border-color:rgba(45,212,191,.4);box-shadow:0 0 20px rgba(45,212,191,.35);}
+
+    .tag-blue{background:rgba(79,142,247,.12);color:var(--blue);}.tag-cyan{background:rgba(34,211,238,.12);color:var(--cyan);}.tag-green{background:rgba(52,211,153,.12);color:var(--green);}.tag-purple{background:rgba(167,139,250,.12);color:var(--purple);}.tag-amber{background:rgba(251,191,36,.12);color:var(--amber);}.tag-red{background:rgba(248,113,113,.12);color:var(--red);}.tag-pink{background:rgba(244,114,182,.12);color:var(--pink);}.tag-orange{background:rgba(251,146,60,.12);color:var(--orange);}.tag-teal{background:rgba(45,212,191,.12);color:var(--teal);}
+
+    .phase-arrow{display:flex;align-items:center;justify-content:center;height:40px;color:var(--text3);font-size:20px;position:relative;}
+    .phase-arrow::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:100%;background:linear-gradient(180deg,var(--border2),transparent);}
+    .phase-arrow span{position:relative;z-index:1;background:var(--bg);padding:0 8px;}
+
+    .detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:20px;}
+    .detail-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px 20px;}
+    .detail-card-title{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+    .detail-card p{font-size:12px;color:var(--text2);line-height:1.65;}
+    .formula{font-family:'JetBrains Mono',monospace;font-size:12px;background:rgba(0,0,0,.3);border-radius:8px;padding:10px 14px;color:var(--cyan);margin-top:8px;border:1px solid var(--border);line-height:1.7;overflow-x:auto;white-space:pre;}
+
+    .pipeline-overview{border:1px solid var(--border);border-radius:20px;background:var(--card);padding:36px 28px;margin-bottom:8px;overflow-x:auto;}
+    .pipeline-row{display:flex;align-items:center;gap:0;min-width:900px;justify-content:center;}
+    .p-node{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;max-width:140px;}
+    .p-node-box{width:100%;padding:12px 10px;border-radius:12px;text-align:center;border:1px solid;font-size:12px;font-weight:600;line-height:1.3;cursor:default;transition:transform .2s,box-shadow .2s;}
+    .p-node-box:hover{transform:scale(1.05);}
+    .p-node-label{font-size:10px;color:var(--text3);text-align:center;}
+    .p-arrow{color:var(--text3);font-size:22px;flex-shrink:0;padding:0 4px;}
+    .pn-blue{background:rgba(79,142,247,.12);border-color:rgba(79,142,247,.4);color:var(--blue);box-shadow:0 0 12px rgba(79,142,247,.15);}
+    .pn-cyan{background:rgba(34,211,238,.12);border-color:rgba(34,211,238,.4);color:var(--cyan);box-shadow:0 0 12px rgba(34,211,238,.15);}
+    .pn-purple{background:rgba(167,139,250,.12);border-color:rgba(167,139,250,.4);color:var(--purple);box-shadow:0 0 12px rgba(167,139,250,.15);}
+    .pn-amber{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.4);color:var(--amber);box-shadow:0 0 12px rgba(251,191,36,.15);}
+    .pn-pink{background:rgba(244,114,182,.12);border-color:rgba(244,114,182,.4);color:var(--pink);box-shadow:0 0 12px rgba(244,114,182,.15);}
+    .pn-green{background:rgba(52,211,153,.12);border-color:rgba(52,211,153,.4);color:var(--green);box-shadow:0 0 12px rgba(52,211,153,.15);}
+    .pn-teal{background:rgba(45,212,191,.12);border-color:rgba(45,212,191,.4);color:var(--teal);box-shadow:0 0 12px rgba(45,212,191,.15);}
+
+    .trust-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:20px;}
+    .trust-node{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;position:relative;overflow:hidden;}
+    .trust-node::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;}
+    .tn-cos::before{background:var(--blue);}.tn-norm::before{background:var(--cyan);}.tn-loss::before{background:var(--amber);}.tn-sign::before{background:var(--purple);}.tn-ema::before{background:var(--green);}.tn-sharp::before{background:var(--pink);}.tn-trim::before{background:var(--teal);}.tn-adapt::before{background:var(--orange);}
+    .trust-node-title{font-size:13px;font-weight:700;margin-bottom:6px;}
+    .trust-node-sub{font-size:11px;color:var(--text3);margin-bottom:8px;font-style:italic;}
+    .trust-node p{font-size:12px;color:var(--text2);line-height:1.6;}
+
+    .pqc-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px;}
+    @media(max-width:700px){.pqc-grid{grid-template-columns:1fr;}.pipeline-row{min-width:600px;}.wrapper{padding:24px 14px 60px;}}
+    .pqc-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px;}
+    .pqc-card-title{font-size:14px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+    .pqc-step{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;}
+    .pqc-step-num{width:24px;height:24px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+    .pqc-step-title{font-size:13px;font-weight:600;margin-bottom:3px;}
+    .pqc-step-desc{font-size:12px;color:var(--text2);line-height:1.6;}
+
+    .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;}
+    .legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+    .legend-dot{width:10px;height:10px;border-radius:50%;}
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <div class="header">
+    <div class="header-badge">Post-Quantum Secure Federated Learning</div>
+    <h1>Complete Framework Architecture Flow Diagram</h1>
+    <p>End-to-end architecture from local client training through ML-KEM-768 / ML-DSA-65 post-quantum encryption to the OptiGradTrust v4 multi-layer defence system. Click any phase header to collapse/expand.</p>
+  </div>
+
+  <!-- Pipeline Overview -->
+  <div class="section-label">Pipeline Overview</div>
+  <div class="pipeline-overview">
+    <div class="pipeline-row">
+      <div class="p-node"><div class="p-node-box pn-blue">Local Training<br>(FLClient)</div><div class="p-node-label">Phase 1</div></div>
+      <div class="p-arrow">&#8594;</div>
+      <div class="p-node"><div class="p-node-box pn-cyan">Key Exchange<br>(ML-KEM-768)</div><div class="p-node-label">Phase 2</div></div>
+      <div class="p-arrow">&#8594;</div>
+      <div class="p-node"><div class="p-node-box pn-purple">Encrypt + Sign<br>(AES-GCM / ML-DSA)</div><div class="p-node-label">Phase 3</div></div>
+      <div class="p-arrow">&#8594;</div>
+      <div class="p-node"><div class="p-node-box pn-amber">Server Verify<br>+ Decrypt</div><div class="p-node-label">Phase 4</div></div>
+      <div class="p-arrow">&#8594;</div>
+      <div class="p-node"><div class="p-node-box pn-pink">Trust Scoring<br>(OptiGradTrust v4)</div><div class="p-node-label">Phase 5</div></div>
+      <div class="p-arrow">&#8594;</div>
+      <div class="p-node"><div class="p-node-box pn-green">Aggregation<br>(FedAvg / Krum)</div><div class="p-node-label">Phase 6</div></div>
+      <div class="p-arrow">&#8594;</div>
+      <div class="p-node"><div class="p-node-box pn-teal">Broadcast<br>Global Model</div><div class="p-node-label">Phase 7</div></div>
+    </div>
+  </div>
+
+  <div class="legend" style="padding:0 4px;margin-bottom:32px;">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div>Local Training</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div>PQC Key Exchange</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--purple)"></div>Encryption/Signing</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div>Server Verification</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--pink)"></div>Trust Scoring</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Aggregation</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div>Model Broadcast</div>
+  </div>
+
+  <div class="section-label">Detailed Step-by-Step Flow</div>
+  <div class="flow">
+
+    <!-- PHASE 1 -->
+    <div class="phase phase-1 open" id="phase1">
+      <div class="phase-header" onclick="togglePhase('phase1')">
+        <div class="phase-icon">&#127947;</div>
+        <div>
+          <div class="phase-num">Phase 1 &bull; federated_learning.py &#8594; FLClient</div>
+          <div class="phase-title">Local Training</div>
+          <div class="phase-subtitle">Each client trains on its private Dirichlet non-IID data shard with attack injection support</div>
+        </div>
+        <div class="phase-chevron">&#9662;</div>
+      </div>
+      <div class="phase-body">
+        <div class="steps">
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">1.1 &mdash; Data Partitioning (Dirichlet Non-IID)</div>
+              <div class="step-desc">CIFAR-10 is split across <strong>10 clients</strong> using Dirichlet distribution (<code>&#945; = 1.0</code>). Each client holds a heterogeneous subset with imbalanced class frequencies, simulating real-world federated scenarios. A lower &#945; produces more extreme non-IID splits.</div>
+              <div class="step-tags"><span class="tag tag-blue">CIFAR-10</span><span class="tag tag-blue">Dirichlet &#945;=1.0</span><span class="tag tag-blue">10 Clients</span><span class="tag tag-blue">Non-IID</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">1.2 &mdash; Global Model Broadcast to Client</div>
+              <div class="step-desc">Server broadcasts current global model state dict (parameters + BatchNorm buffers) to each client. Client performs a <strong>deep copy</strong> &#8212; no mutation of global model occurs. Model is set to <code>eval()</code> during copy, <code>train()</code> before local SGD begins.</div>
+              <div class="step-tags"><span class="tag tag-blue">Deep Copy</span><span class="tag tag-blue">CIFAR10CNN</span><span class="tag tag-blue">BN Safe</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">1.3 &mdash; Local SGD Training (3 Epochs per Round)</div>
+              <div class="step-desc">Nesterov SGD with cosine LR annealing: starts at 0.01, decays toward ~0% over NUM_ROUNDS (50). Weight decay L2 regularisation &#955;=1e-4. Gradient clipping at clip_norm=5.0 prevents exploding updates. 64-sample mini-batches.</div>
+              <div class="formula">cosine_lr = LR * 0.5 * (1 + cos(&#960; * round / NUM_ROUNDS))
+floor at LR * 0.01   (never goes to zero)</div>
+              <div class="step-tags"><span class="tag tag-blue">SGD+Nesterov</span><span class="tag tag-blue">Cosine LR</span><span class="tag tag-blue">GradClip=5.0</span><span class="tag tag-blue">L2 &#955;=1e-4</span><span class="tag tag-blue">Batch=64</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">1.4 &mdash; Attack Injection (Byzantine / Data Poisoning)</div>
+              <div class="step-desc"><strong>AttackManager</strong> injects adversarial behaviour on 3/10 clients:<br>
+                &#8226; <strong>Byzantine Model Poisoning</strong>: &#916;_poisoned = &#8722;scale &#215; &#916;_local (scale=10.0). Reverses and amplifies the gradient.<br>
+                &#8226; <strong>Data Poisoning (Label Flip)</strong>: 50% of training labels randomly flipped before local SGD, corrupting gradient directions on targeted classes without touching the model weights directly.</div>
+              <div class="step-tags"><span class="tag tag-red">Byzantine Scale=10</span><span class="tag tag-red">Label Flip 50%</span><span class="tag tag-red">3/10 Attackers</span><span class="tag tag-red">Targeted Classes</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div></div>
+            <div class="step-card">
+              <div class="step-title">1.5 &mdash; Compute Update &#916; (State Dict Flat)</div>
+              <div class="step-desc">Update tensor computed via <code>get_state_dict_flat()</code> so BatchNorm running_mean/var buffers are included in the delta &#8212; fixing the original BN-buffer-exclusion bug. Flat tensor = concatenation of all parameter diffs.</div>
+              <div class="formula">&#916; = flatten(local_weights &#8722; global_weights)
+   [includes BN running_mean, running_var, num_batches]</div>
+              <div class="step-tags"><span class="tag tag-blue">Flat Tensor</span><span class="tag tag-blue">BN Buffers</span><span class="tag tag-blue">&#916; = local &#8722; global</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="phase-arrow"><span>&#9660;</span></div>
+
+    <!-- PHASE 2 -->
+    <div class="phase phase-2 open" id="phase2">
+      <div class="phase-header" onclick="togglePhase('phase2')">
+        <div class="phase-icon">&#128273;</div>
+        <div>
+          <div class="phase-num">Phase 2 &bull; pqc.py &#8594; PostQuantumCrypto</div>
+          <div class="phase-title">Post-Quantum Key Exchange (ML-KEM-768 + ML-DSA-65 Setup)</div>
+          <div class="phase-subtitle">Quantum-resistant key encapsulation using NIST-standardised Kyber-768 lattice cryptography + Dilithium-3 signatures</div>
+        </div>
+        <div class="phase-chevron">&#9662;</div>
+      </div>
+      <div class="phase-body">
+        <div class="pqc-grid">
+          <div class="pqc-card">
+            <div class="pqc-card-title" style="color:var(--cyan)">&#128273; ML-KEM-768 Key Exchange Flow</div>
+
+            <div class="pqc-step">
+              <div class="pqc-step-num" style="background:rgba(34,211,238,.15);color:var(--cyan)">1</div>
+              <div class="pqc-step-body">
+                <div class="pqc-step-title">Server Generates ML-KEM-768 Keypair</div>
+                <div class="pqc-step-desc">Calls <code>generate_kem_keypair()</code> via liboqs. Produces <strong>pk</strong> (1184 B) and <strong>sk</strong> (2400 B). pk is broadcast to all clients. Based on Module Learning With Errors (MLWE) hard problem.</div>
+              </div>
+            </div>
+
+            <div class="pqc-step">
+              <div class="pqc-step-num" style="background:rgba(34,211,238,.15);color:var(--cyan)">2</div>
+              <div class="pqc-step-body">
+                <div class="pqc-step-title">Client Encapsulates a Per-Round Session Key</div>
+                <div class="pqc-step-desc"><code>encapsulate(server_pk)</code> &#8594; <strong>(ct, ss)</strong>. ct = 1088-byte KEM ciphertext. ss = raw 32-byte shared secret. Client keeps ss, sends ct to server. Session key is fresh every round &#8212; forward secrecy.</div>
+              </div>
+            </div>
+
+            <div class="pqc-step">
+              <div class="pqc-step-num" style="background:rgba(34,211,238,.15);color:var(--cyan)">3</div>
+              <div class="pqc-step-body">
+                <div class="pqc-step-title">Server Decapsulates &#8594; Same ss</div>
+                <div class="pqc-step-desc"><code>decapsulate(ct)</code> with sk &#8594; same 32-byte ss. Both sides share a secret without ever transmitting it. IND-CCA2 secure. Immune to Shor&#8217;s algorithm (quantum computers cannot factor lattice problems).</div>
+              </div>
+            </div>
+
+            <div class="pqc-step">
+              <div class="pqc-step-num" style="background:rgba(34,211,238,.15);color:var(--cyan)">4</div>
+              <div class="pqc-step-body">
+                <div class="pqc-step-title">HKDF-SHA256 Key Derivation (NIST SP 800-227 &#167;7)</div>
+                <div class="pqc-step-desc">Raw ss passed through <code>_derive_aes_key(ss, info="FL-ML-KEM-AES256GCM")</code> using HKDF-SHA256. Prevents biased KEM output from being used directly. Produces a proper 256-bit AES key.</div>
+              </div>
+            </div>
+            <div class="formula">ss_raw (32 B)  &#8594;  HKDF-SHA256
+  salt=zero(32), info="FL-ML-KEM-AES256GCM"
+  &#8594;  aes_key = 32 bytes  (AES-256)</div>
+          </div>
+
+          <div class="pqc-card">
+            <div class="pqc-card-title" style="color:var(--purple)">&#9999; ML-DSA-65 Digital Signature Setup</div>
+
+            <div class="pqc-step">
+              <div class="pqc-step-num" style="background:rgba(167,139,250,.15);color:var(--purple)">1</div>
+              <div class="pqc-step-body">
+                <div class="pqc-step-title">Client Generates ML-DSA-65 Keypair on Init</div>
+                <div class="pqc-step-desc">Each <code>FLClient.__init__</code> calls <code>pqc.generate_sig_keypair()</code> producing Dilithium-3 keypair: <strong>dsa_pk</strong> (1952 B) + <strong>dsa_sk</strong> (4032 B). Public key is pre-registered with server.</div>
+              </div>
+            </div>
+
+            <div class="pqc-step">
+              <div class="pqc-step-num" style="background:rgba(167,139,250,.15);color:var(--purple)">2</div>
+              <div class="pqc-step-body">
+                <div class="pqc-step-title">Build Bound Message (Anti-Replay)</div>
+                <div class="pqc-step-desc">Canonical signed payload = <code>client_id(4B) &#8214; round_num(4B) &#8214; ct_kem &#8214; nonce &#8214; ciphertext</code>. Binding all metadata prevents replay, reorder, and impersonation attacks. Changing any field invalidates the tag.</div>
+              </div>
+            </div>
+
+            <div class="pqc-step">
+              <div class="pqc-step-num" style="background:rgba(167,139,250,.15);color:var(--purple)">3</div>
+              <div class="pqc-step-body">
+                <div class="pqc-step-title">Sign &#8594; ML-DSA Signature (2420 B)</div>
+                <div class="pqc-step-desc"><code>sig.sign(bound_msg)</code> produces 2420-byte lattice-based signature. Quantum-resistant: no ECC or RSA &#8212; immune to Shor&#8217;s algorithm. Based on Module Learning With Errors (MLWE) and Module Short Integer Solution (MSIS).</div>
+              </div>
+            </div>
+
+            <div class="pqc-step">
+              <div class="pqc-step-num" style="background:rgba(167,139,250,.15);color:var(--purple)">4</div>
+              <div class="pqc-step-body">
+                <div class="pqc-step-title">AAD Construction for AES-GCM</div>
+                <div class="pqc-step-desc">AAD = <code>client_id(4B) &#8214; round_num(4B)</code> is bound into the GCM authentication tag. Swapping ciphertext to a different round or client context fails tag verification, providing a second layer of anti-replay protection.</div>
+              </div>
+            </div>
+            <div class="formula">Signature payload =
+  client_id(4B) &#8214; round_num(4B) &#8214; kem_ct
+  &#8214; nonce(12B) &#8214; enc_update
+sig = ML-DSA-65.Sign(dsa_sk, payload)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase-arrow"><span>&#9660;</span></div>
+
+    <!-- PHASE 3 -->
+    <div class="phase phase-3 open" id="phase3">
+      <div class="phase-header" onclick="togglePhase('phase3')">
+        <div class="phase-icon">&#128274;</div>
+        <div>
+          <div class="phase-num">Phase 3 &bull; pqc.py &#8594; EncryptedUpdate</div>
+          <div class="phase-title">Encrypt Update &amp; Package</div>
+          <div class="phase-subtitle">AES-256-GCM authenticated encryption + ML-DSA-65 digital signature wrapped into EncryptedUpdate container</div>
+        </div>
+        <div class="phase-chevron">&#9662;</div>
+      </div>
+      <div class="phase-body">
+        <div class="steps">
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">3.1 &mdash; Serialize Update Tensor &#8594; Bytes</div>
+              <div class="step-desc">Flat update tensor &#916; serialised via <code>serialize_update()</code>: tensor.cpu() &#8594; numpy array &#8594; pickle.dumps(). Device-agnostic on the receiving server side. State dict variant uses <code>serialize_state_dict()</code> for full model snapshots.</div>
+              <div class="step-tags"><span class="tag tag-purple">pickle + numpy</span><span class="tag tag-purple">CPU Safe</span><span class="tag tag-purple">Device Agnostic</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">3.2 &mdash; AES-256-GCM Authenticated Encryption</div>
+              <div class="step-desc"><code>encrypt_update(plaintext, ss, aad)</code> flow:<br>
+                &#8226; 12-byte random nonce (96-bit, GCM standard &#8212; avoids nonce reuse via fresh randomness)<br>
+                &#8226; AES-256 key derived from HKDF(ss)<br>
+                &#8226; GCM authentication tag covers both ciphertext + AAD<br>
+                &#8226; Output: <code>(nonce, ciphertext_with_tag)</code><br>
+                Any tampering of nonce, ciphertext, or AAD raises <code>InvalidTag</code> exception &#8212; update is rejected.</div>
+              <div class="step-tags"><span class="tag tag-purple">AES-256-GCM</span><span class="tag tag-purple">96-bit Nonce</span><span class="tag tag-purple">AEAD</span><span class="tag tag-purple">InvalidTag on Tamper</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div></div>
+            <div class="step-card">
+              <div class="step-title">3.3 &mdash; Assemble EncryptedUpdate Container</div>
+              <div class="step-desc">All cryptographic artefacts are wrapped into a single <code>EncryptedUpdate</code> object and transmitted to the server:</div>
+              <div class="formula">EncryptedUpdate {
+  client_id        : int    &#8212; originating client
+  encrypted_update : bytes  &#8212; AES-256-GCM ciphertext + 16-byte tag
+  signature        : bytes  &#8212; ML-DSA-65 (2420 B)
+  kem_ciphertext   : bytes  &#8212; ML-KEM-768 (1088 B)
+  nonce            : bytes  &#8212; 12-byte AES-GCM nonce
+  round_num        : int    &#8212; FL round number
+  timestamp        : float  &#8212; Unix creation time
+}</div>
+              <div class="step-tags"><span class="tag tag-purple">Confidentiality</span><span class="tag tag-purple">Integrity</span><span class="tag tag-purple">Authenticity</span><span class="tag tag-purple">Anti-Replay</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="phase-arrow"><span>&#9660;</span></div>
+
+    <!-- PHASE 4 -->
+    <div class="phase phase-4 open" id="phase4">
+      <div class="phase-header" onclick="togglePhase('phase4')">
+        <div class="phase-icon">&#128737;</div>
+        <div>
+          <div class="phase-num">Phase 4 &bull; federated_learning.py &#8594; FLServer</div>
+          <div class="phase-title">Server Verification &amp; Decryption</div>
+          <div class="phase-subtitle">ML-DSA signature check, KEM decapsulation, AES-GCM authenticated decryption, and update validation</div>
+        </div>
+        <div class="phase-chevron">&#9662;</div>
+      </div>
+      <div class="phase-body">
+        <div class="steps">
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">4.1 &mdash; ML-DSA-65 Signature Verification</div>
+              <div class="step-desc">Server reconstructs the canonical bound message and calls <code>pqc.verify(msg, sig, client_pk)</code>. If verification fails &#8594; update is <strong>REJECTED</strong>. Prevents impersonation (attacker cannot forge a valid Dilithium signature without dsa_sk) and replay attacks (round_num is in the bound message).</div>
+              <div class="step-tags"><span class="tag tag-amber">Reject on Fail</span><span class="tag tag-amber">Anti-Impersonation</span><span class="tag tag-amber">Anti-Replay</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">4.2 &mdash; ML-KEM Decapsulation &#8594; Shared Secret</div>
+              <div class="step-desc">Server calls <code>decapsulate(kem_ciphertext)</code> with its KEM secret key &#8594; recovers the same raw ss the client derived. ss is then passed through HKDF-SHA256 to produce the matching AES-256 key. Forward secrecy: each round uses a fresh ephemeral session key.</div>
+              <div class="step-tags"><span class="tag tag-amber">Forward Secrecy</span><span class="tag tag-amber">IND-CCA2</span><span class="tag tag-amber">Ephemeral Key</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">4.3 &mdash; AES-256-GCM Authenticated Decryption</div>
+              <div class="step-desc"><code>decrypt_update(nonce, ciphertext, ss, aad)</code>. GCM tag verified against AAD = <code>client_id &#8214; round_num</code>. Any mismatch &#8594; <code>InvalidTag</code> exception &#8594; update rejected. Successful decryption yields raw update bytes.</div>
+              <div class="step-tags"><span class="tag tag-amber">Tamper Detection</span><span class="tag tag-amber">AAD Binding</span><span class="tag tag-amber">Authenticated</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div></div>
+            <div class="step-card">
+              <div class="step-title">4.4 &mdash; Deserialize &#8594; Update Tensor + Validation</div>
+              <div class="step-desc"><code>deserialize_update(bytes)</code>: pickle.loads &#8594; numpy &#8594; float32 CPU tensor. Update validated for NaN/Inf values. Malformed updates discarded. Valid updates queued for Trust Scoring phase. Server tracks per-client timing metrics (encryption_time, signature_time, decryption_time).</div>
+              <div class="step-tags"><span class="tag tag-amber">NaN/Inf Check</span><span class="tag tag-amber">float32</span><span class="tag tag-amber">Timing Metrics</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="phase-arrow"><span>&#9660;</span></div>
+
+    <!-- PHASE 5 - TRUST -->
+    <div class="phase phase-5 open" id="phase5">
+      <div class="phase-header" onclick="togglePhase('phase5')">
+        <div class="phase-icon">&#129504;</div>
+        <div>
+          <div class="phase-num">Phase 5 &bull; trust.py &#8594; TrustManager (OptiGradTrust v4)</div>
+          <div class="phase-title">Trust-Based Defence Layer &#8212; OptiGradTrust v4</div>
+          <div class="phase-subtitle">8-mechanism multi-metric trust scoring: cosine similarity, blended norm, loss delta, sign-consistency gate, score sharpening, adaptive alpha, EMA accumulation, trust-gated trimming</div>
+        </div>
+        <div class="phase-chevron">&#9662;</div>
+      </div>
+      <div class="phase-body">
+
+        <div class="detail-card" style="margin-bottom:20px;border-color:rgba(244,114,182,.3);">
+          <div class="detail-card-title" style="color:var(--pink)">&#9881; Per-Round Call Ordering (federated_learning.py)</div>
+          <div class="formula">1.  weights   = trust_mgr.get_weights(valid_ids, round_num)    # BEFORE aggregation
+2.  trim_ids  = trust_mgr.get_trim_ids(valid_ids, round_num)   # BEFORE aggregation
+        (trim_ids are excluded from kept_updates)
+3.  aggregated = defense.aggregate(kept_updates,
+                                   trust_weights=kept_weights)
+4.  trust_mgr.update_scores(client_ids, updates,
+                             aggregated_update, ...)             # AFTER aggregation</div>
+        </div>
+
+        <div class="detail-card" style="margin-bottom:20px;border-color:rgba(251,191,36,.3);">
+          <div class="detail-card-title" style="color:var(--amber)">&#127777; Warm-Up Phase (Rounds 0&#8211;4) &#8212; 5 Rounds</div>
+          <p>For the first 5 rounds, trust scoring is <strong>INACTIVE</strong>. All clients receive uniform weights (plain FedAvg). Scores are observed and accumulated in history but not applied. Warm-up guard ensures round-1 loss deltas (which are pure noise) cannot prematurely tank honest clients. Trust-gated trimming is also disabled during warm-up.</p>
+        </div>
+
+        <!-- 8 trust mechanisms -->
+        <div class="trust-flow">
+
+          <div class="trust-node tn-cos">
+            <div class="trust-node-title" style="color:var(--blue)">&#9312; Cosine Similarity Score</div>
+            <div class="trust-node-sub">Base metric &mdash; all scoring modes</div>
+            <p>Measures angular alignment of client update &#916;&#7522; with the aggregated reference &#916;_agg. Poisoned updates typically point in a divergent direction, producing low or negative cosine similarity.</p>
+            <div class="formula">cos_sim = dot(&#916;&#7522;, &#916;_agg)
+          / (&#8214;&#916;&#7522;&#8214; &#183; &#8214;&#916;_agg&#8214;)
+cos_score = (cos_sim + 1) / 2  &#8712; [0,1]
+# 0 = opposite direction (bad)
+# 1 = perfectly aligned (good)</div>
+          </div>
+
+          <div class="trust-node tn-norm">
+            <div class="trust-node-title" style="color:var(--cyan)">&#9313; Blended Norm-Ratio Penalty <span style="font-size:10px;color:var(--teal)">[v4 FIX]</span></div>
+            <div class="trust-node-sub">Self-referential norm baseline</div>
+            <p>Old method compared a client&#8217;s norm only to the <em>current round&#8217;s cross-client median</em>. Under non-IID splits, honest clients&#8217; norms legitimately vary round-to-round. Fix: blend each client&#8217;s OWN historical norm as a second reference via SELF_NORM_BLEND=0.5.</p>
+            <div class="formula">cross = &#8214;&#916;&#7522;&#8214; / median(&#8214;&#916;_all&#8214;)
+self  = &#8214;&#916;&#7522;&#8214; / median(hist_norms&#7522;)
+ratio = 0.5&#183;self + 0.5&#183;cross
+norm_score = exp&#8722;((ratio&#8722;1)&#178; / 0.5)
+cosine_raw = (1&#8722;NORM_PEN)&#183;cos + NORM_PEN&#183;norm
+             [NORM_PENALTY = 0.5]</div>
+          </div>
+
+          <div class="trust-node tn-loss">
+            <div class="trust-node-title" style="color:var(--amber)">&#9314; Loss-Delta Score</div>
+            <div class="trust-node-sub">Stratified rotating validation set</div>
+            <p>Temporarily applies each client update to the global model and measures validation loss change. Uses a <em>stratified pool</em> (up to 3 batches/class) with rotating k=5 batches per round (seeded by round_num). Concentrated per-class loss spikes trigger an extra 50% penalty.</p>
+            <div class="formula">&#948; = (loss_after &#8722; loss_before) / max(loss_before, 1e-8)
+if &#948; &#8804; 0:  score += 5%   (recovery bonus)
+else:      loss_raw = exp(&#8722;10&#183;&#948;)
+if concentrated_class_spike: &#215; 0.5
+  (fraction_spiked &#8804; 0.25 AND spike > 0.3)</div>
+          </div>
+
+          <div class="trust-node tn-sign">
+            <div class="trust-node-title" style="color:var(--purple)">&#9315; Sign Consistency Gate <span style="font-size:10px;color:var(--purple2)">[OptiGradTrust F.2]</span></div>
+            <div class="trust-node-sub">Universal gate applied to ALL modes</div>
+            <p>Computes the fraction of gradient dimensions whose sign matches the element-wise <em>median</em> reference (more robust than using aggregated update). Label-flipping attackers invert gradient directions on targeted features even when cosine similarity remains moderate.</p>
+            <div class="formula">reference = torch.median(stack(&#916;_all), dim=0)
+mask = |reference| > 1e-9  (non-trivial dims)
+sign_score = mean(sign(&#916;&#7522;[mask])
+                 == sign(ref[mask]))  &#8712; [0,1]
+gate = 0.5 + 0.5&#183;sign_score     &#8712; [0.5, 1.0]
+raw_score *= gate   # applied BEFORE sharpening</div>
+          </div>
+
+          <div class="trust-node tn-sharp">
+            <div class="trust-node-title" style="color:var(--pink)">&#9316; Score Sharpening <span style="font-size:10px;color:var(--pink)">[v4 FIX]</span></div>
+            <div class="trust-node-sub">Widens honest/suspicious separation</div>
+            <p>Under mild attacks, raw scores cluster in a narrow 0.86&#8211;0.996 band &#8212; barely down-weighting anyone after normalisation. A monotonic exponent (> 1) applied <em>post sign-gate</em> widens the gap without re-ranking anyone (monotone transform).</p>
+            <div class="formula">raw_score = raw_score ^ SHARPEN_EXPONENT
+SHARPEN_EXPONENT = 2.5
+Examples:
+  0.990 &#8594; 0.975  (honest,  barely changed)
+  0.850 &#8594; 0.614  (suspicious, pushed down)
+  0.500 &#8594; 0.177  (adversarial, heavy penalty)
+  0.300 &#8594; 0.027  (strong attacker, near-zero)</div>
+          </div>
+
+          <div class="trust-node tn-adapt">
+            <div class="trust-node-title" style="color:var(--orange)">&#9317; Variance-Aware Adaptive Alpha <span style="font-size:10px;color:var(--orange)">[OptiGradTrust F.5]</span></div>
+            <div class="trust-node-sub">Sleeper attacker detection &mdash; non-IID safe</div>
+            <p>If a client&#8217;s score drops anomalously relative to their <em>own</em> history (personalised &#963;-threshold), alpha is boosted so the EMA penalty lands fast. Honest non-IID clients with naturally high variance are protected by the personalised sigma calculation.</p>
+            <div class="formula">hist_std = std(client_history)   (last WINDOW rounds)
+threshold = max(0.25, 2.0 &#215; hist_std)
+drop = hist_mean &#8722; raw_score
+if drop > threshold:
+  ema_alpha = 0.60  (BOOST_ALPHA &#8212; react fast)
+else:
+  ema_alpha = 0.20  (base alpha &#8212; normal EMA)
+# Warm-up: always use base_alpha = 0.20</div>
+          </div>
+
+          <div class="trust-node tn-ema">
+            <div class="trust-node-title" style="color:var(--green)">&#9318; EMA Trust Accumulation</div>
+            <div class="trust-node-sub">Temporal smoothing over history</div>
+            <p>Trust is EMA-smoothed across rounds using the (possibly boosted) adaptive alpha. Consistent attackers accumulate penalties; a single noisy round cannot permanently damage an honest client. Floor TRUST_MIN=0.1 ensures no client is fully silenced. Absent clients decay toward TRUST_MIN.</p>
+            <div class="formula">new_score = (1&#8722;&#945;)&#183;old_score + &#945;&#183;raw_score
+new_score = clamp(new_score, 0.10, 1.00)
+history.append(new_score)   (maxlen=TRUST_WINDOW=5)
+# Absent this round (not in client_ids):
+decayed = (1&#8722;&#945;)&#183;old + &#945;&#183;TRUST_MIN</div>
+          </div>
+
+          <div class="trust-node tn-trim">
+            <div class="trust-node-title" style="color:var(--teal)">&#9319; Trust-Gated Trimming <span style="font-size:10px;color:var(--teal)">[v4 REPLACEMENT]</span></div>
+            <div class="trust-node-sub">Replaces unconditional norm-rank backstop</div>
+            <p>Old backstop discarded 6/10 clients every round unconditionally by norm rank. New version only excludes a client when its EMA score is a statistically significant outlier relative to the round cohort. Never trims during warm-up; never trims > 40% of cohort; trims nobody when the group looks homogeneous.</p>
+            <div class="formula">z = (mean_score &#8722; client_score) / std_score
+gap = mean_score &#8722; client_score
+candidate if:
+  z > TRIM_Z_THRESHOLD (1.25)   [relative outlier]
+  AND gap > TRIM_MIN_GAP (0.05) [absolute outlier]
+cap = floor(0.4 &#215; num_clients)   [40% safety cap]
+disabled during warm-up rounds (0&#8211;4)</div>
+          </div>
+
+        </div><!-- /trust-flow -->
+
+        <!-- Combined mode -->
+        <div class="detail-card" style="margin-top:20px;border-color:rgba(244,114,182,.3);">
+          <div class="detail-card-title" style="color:var(--pink)">&#128279; Combined Mode (Experiments 12&#8211;14) &#8212; Geometric Mean Forces Dual Evasion</div>
+          <p>Takes the geometric mean of cosine-based and loss-based scores, forcing an attacker to simultaneously evade <em>both</em> checks. A poisoner who generates a plausible gradient direction but still harms validation loss will be caught by the loss arm even if the cosine arm is fooled.</p>
+          <div class="formula">raw_score = sqrt(cosine_raw &#215; loss_raw)   # geometric mean
+raw_score = raw_score &#215; (0.5 + 0.5 &#215; sign_score)  # sign gate
+raw_score = raw_score ^ 2.5                # sharpening
+new_score = (1&#8722;&#945;) &#215; old + &#945; &#215; raw_score   # EMA</div>
+        </div>
+
+        <!-- Weight retrieval -->
+        <div class="detail-card" style="margin-top:16px;border-color:rgba(52,211,153,.3);">
+          <div class="detail-card-title" style="color:var(--green)">&#9878; get_weights() &#8212; Normalised Trust Weights for Aggregation</div>
+          <p>After scoring, normalised trust weights are returned for use in the aggregator. During warm-up, uniform weights are returned. Low-trust clients contribute proportionally less to the global update.</p>
+          <div class="formula">raw = [scores[cid] for cid in client_ids]
+total = sum(raw)
+weights = [r / total for r in raw]
+# uniform during warm-up (round &lt; 5)</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="phase-arrow"><span>&#9660;</span></div>
+
+    <!-- PHASE 6 -->
+    <div class="phase phase-6 open" id="phase6">
+      <div class="phase-header" onclick="togglePhase('phase6')">
+        <div class="phase-icon">&#128279;</div>
+        <div>
+          <div class="phase-num">Phase 6 &bull; defenses.py</div>
+          <div class="phase-title">Trust-Weighted Aggregation</div>
+          <div class="phase-subtitle">FedAvg / Multi-Krum / Manhattan Distance &#8212; all optionally trust-weighted and protected by OptiGradTrust v4</div>
+        </div>
+        <div class="phase-chevron">&#9662;</div>
+      </div>
+      <div class="phase-body">
+        <div class="detail-grid">
+
+          <div class="detail-card" style="border-color:rgba(52,211,153,.3);">
+            <div class="detail-card-title" style="color:var(--green)">&#128202; FedAvg + Trust Weights (Default)</div>
+            <p>Standard weighted average. Trust weights blended with dataset-size weights. Trimmed clients (from get_trim_ids) are excluded before aggregation. Most experiments use this mode combined with OptiGradTrust v4.</p>
+            <div class="formula">combined&#7522; = base_weight&#7522; &#215; trust&#7522;
+w&#7522; = combined&#7522; / &#8721; combined&#11801;
+&#916;_global = &#8721; w&#7522; &#183; &#916;&#7522;</div>
+          </div>
+
+          <div class="detail-card" style="border-color:rgba(52,211,153,.3);">
+            <div class="detail-card-title" style="color:var(--green)">&#127919; Multi-Krum (Byzantine Resilient)</div>
+            <p>Selects m=5 updates with lowest sum-of-squared-distances to nearest (n&#8722;f&#8722;2) neighbours. Trust modifiers multiply Krum scores for low-trust clients, making them less likely to be selected as good representatives.</p>
+            <div class="formula">krum_score&#7522; = &#8721;&#11801;&#8712;NN dist&#178;(&#916;&#7522;,&#916;&#11801;)
+             &#215; (2 &#8722; trust&#7522;)   [modifier]
+select m=5 updates with min krum_score
+final = mean(selected m updates)</div>
+          </div>
+
+          <div class="detail-card" style="border-color:rgba(52,211,153,.3);">
+            <div class="detail-card-title" style="color:var(--green)">&#128207; Manhattan Distance Defense</div>
+            <p>Computes L1 distance of each update from the median. Updates beyond <code>median + k&#183;std</code> are down-weighted or excluded. Trust scores additionally scale each client&#8217;s contribution to the final weighted average.</p>
+            <div class="formula">l1_dist&#7522; = &#8214;&#916;&#7522; &#8722; median(&#916;_all)&#8214;&#8321;
+threshold = median_dist + 2.0 &#215; std_dist
+effective_w&#7522; = trust&#7522; &#215; (1 if within else 0)</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="phase-arrow"><span>&#9660;</span></div>
+
+    <!-- PHASE 7 -->
+    <div class="phase phase-7 open" id="phase7">
+      <div class="phase-header" onclick="togglePhase('phase7')">
+        <div class="phase-icon">&#128225;</div>
+        <div>
+          <div class="phase-num">Phase 7 &bull; federated_learning.py &#8594; FLServer</div>
+          <div class="phase-title">Global Model Update, Evaluation &amp; Broadcast</div>
+          <div class="phase-subtitle">Apply aggregated delta, checkpoint, evaluate on test set, update trust history, broadcast to next round</div>
+        </div>
+        <div class="phase-chevron">&#9662;</div>
+      </div>
+      <div class="phase-body">
+        <div class="steps">
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">7.1 &mdash; Apply Aggregated Update to Global Model</div>
+              <div class="step-desc">Server applies the aggregated delta using <code>server_learning_rate = 1.0</code> (standard FedAvg). BN running_mean/var buffers correctly incorporated. The original v1 bug used LR=0.1 &#8212; fixed to 1.0 for proper FedAvg semantics.</div>
+              <div class="formula">global_flat += server_lr &#215; &#916;_global
+global_model.load(unflatten(global_flat))
+# Includes BN buffers: running_mean, running_var</div>
+              <div class="step-tags"><span class="tag tag-teal">LR=1.0</span><span class="tag tag-teal">BN Buffers</span><span class="tag tag-teal">State Dict Flat</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">7.2 &mdash; Evaluate Global Model on Test Set</div>
+              <div class="step-desc">Global model evaluated in eval() mode on held-out test set: overall accuracy, loss, per-class accuracy. Attack success rate tracked for Byzantine/data-poisoning experiments. Results logged to <code>./results/</code> and <code>./logs/</code> every round (LOG_INTERVAL=1).</div>
+              <div class="step-tags"><span class="tag tag-teal">Accuracy</span><span class="tag tag-teal">Loss</span><span class="tag tag-teal">Per-Class</span><span class="tag tag-teal">Attack Success Rate</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+            <div class="step-card">
+              <div class="step-title">7.3 &mdash; Checkpoint (Every 5 Rounds)</div>
+              <div class="step-desc">Saves model state dict, trust scores (all EMA history), optimizer state, and metrics snapshot. Keeps last 3 checkpoints (CHECKPOINT_KEEP_LAST=3). On restart, auto-resumes from the latest checkpoint &#8212; no re-training from round 0.</div>
+              <div class="step-tags"><span class="tag tag-teal">Crash Recovery</span><span class="tag tag-teal">Trust State</span><span class="tag tag-teal">Keep Last 3</span></div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-connector"><div class="step-dot"></div></div>
+            <div class="step-card">
+              <div class="step-title">7.4 &mdash; Update Trust Scores &amp; Broadcast to Next Round</div>
+              <div class="step-desc"><code>trust_mgr.update_scores(...)</code> called AFTER aggregation with the aggregated update as reference. Trust scores from this round carry forward in EMA history. Updated global model state dict broadcast to all clients for the next round. Loop continues for 50 rounds total.</div>
+              <div class="step-tags"><span class="tag tag-teal">50 Rounds Total</span><span class="tag tag-teal">EMA Carry-Forward</span><span class="tag tag-teal">&#8594; Phase 1</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /flow -->
+
+  <!-- Security Summary -->
+  <div class="section-label">Security Properties &amp; Guarantees</div>
+  <div class="detail-grid" style="margin-bottom:60px;">
+    <div class="detail-card" style="border-color:rgba(34,211,238,.3);">
+      <div class="detail-card-title" style="color:var(--cyan)">&#128272; Confidentiality</div>
+      <p>ML-KEM-768 key encapsulation + AES-256-GCM. Model updates are never transmitted in plaintext. Session keys are ephemeral per round &#8212; forward secret. HKDF ensures key material is cryptographically strong.</p>
+    </div>
+    <div class="detail-card" style="border-color:rgba(52,211,153,.3);">
+      <div class="detail-card-title" style="color:var(--green)">&#9989; Integrity</div>
+      <p>AES-GCM authentication tag covers ciphertext + AAD. Any bit-flip, metadata swap, or ciphertext reuse is detected with overwhelming probability. Update is rejected on any tamper event.</p>
+    </div>
+    <div class="detail-card" style="border-color:rgba(167,139,250,.3);">
+      <div class="detail-card-title" style="color:var(--purple)">&#128282; Authenticity</div>
+      <p>ML-DSA-65 (Dilithium-3) lattice signature over the full bound payload. Quantum-immune &#8212; no ECC or RSA. Prevents impersonation: an attacker cannot forge a valid signature without the client&#8217;s secret key.</p>
+    </div>
+    <div class="detail-card" style="border-color:rgba(251,191,36,.3);">
+      <div class="detail-card-title" style="color:var(--amber)">&#128260; Anti-Replay</div>
+      <p>Bound message includes client_id &#8214; round_num. Replaying a previous round&#8217;s packet fails both signature verification and GCM tag check. AAD also binds each ciphertext to its specific client and round.</p>
+    </div>
+    <div class="detail-card" style="border-color:rgba(244,114,182,.3);">
+      <div class="detail-card-title" style="color:var(--pink)">&#128737; Byzantine Resilience</div>
+      <p>OptiGradTrust v4 combines 8 mechanisms to detect and down-weight poisoned updates. Combined mode forces attackers to simultaneously evade cosine, loss, sign-consistency checks. Score sharpening widens separation between honest and suspicious clients.</p>
+    </div>
+    <div class="detail-card" style="border-color:rgba(45,212,191,.3);">
+      <div class="detail-card-title" style="color:var(--teal)">&#127758; Quantum Resistance</div>
+      <p>ML-KEM (MLWE-based KEM) and ML-DSA (MLWE/MSIS-based DSA) are NIST PQC standard algorithms (FIPS 203/204). Immune to Shor&#8217;s algorithm. Provides 128-bit post-quantum security level. Implemented via liboqs (Open Quantum Safe project).</p>
+    </div>
+  </div>
+
+</div><!-- /wrapper -->
+
+<script>
+  function togglePhase(id) {
+    const el = document.getElementById(id);
+    el.classList.toggle('open');
+  }
+</script>
+</body>
+</html>

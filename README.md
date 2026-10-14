@@ -60,7 +60,21 @@ If `liboqs-python` is not available, the framework will use mock implementations
 pip install -r requirements.txt
 ```
 
-### 3. Project Structure
+### 3. Download the CIFAR-10 Dataset
+The experiments require the CIFAR-10 data files to be present in the data directory before you run anything.
+
+- Download the required dataset files from the shared Google Drive link and place them in the data folder.
+- If the files are provided as an archive, extract them so the expected folder structure is available under data/.
+- Typical expected contents are:
+  - data/cifar-10-batches-py/
+  - data/cifar-10-python.tar.gz (if your setup uses the archive version)
+
+If you are sharing this project with teammates, make sure they download and extract the dataset into the same data directory before running the experiments.
+
+
+#### Google Drive: https://drive.google.com/drive/folders/1064Nd8Zphyu7dZmtOT8sntz7HV4I_ja8?usp=sharing
+
+### 4. Project Structure
 ```
 btp/
 ├── basecode.py                  # Main entry point
@@ -110,6 +124,16 @@ python basecode.py --experiment 9
 
 # Experiment 10: Byzantine Attack + PQC + Manhattan Distance
 python basecode.py --experiment 10
+
+# Experiment 14: Data Poisoning + PQC + OptiGradTrust v4
+python basecode.py --experiment 14
+
+# Experiment 15: Multi-Seed Statistical Evaluation
+python basecode.py --experiment 15 --quick              # Quick smoke test (2 seeds, 2 rounds)
+python basecode.py --experiment 15                      # Full sweep (5 seeds, default 50 rounds)
+python basecode.py --experiment 15 --seeds 42 43 44 45 46 --rounds 50
+python basecode.py --experiment 15 --fresh              # Ignore previous checkpoints and rerun
+python experiments_multiseed.py --analyze              # Re-run analysis & plots on completed runs
 ```
 
 ### 2. Run All Experiments
@@ -188,6 +212,49 @@ Data poisoning with Manhattan Distance defense.
 Full secure setup with Manhattan Distance defense.
 
 **Expected Result**: Most robust configuration with full encryption
+
+### Experiment 11: Data Poisoning + PQC + Loss-Based Trust
+Evaluation of loss-based client trust scoring under data poisoning.
+
+### Experiment 12: Data Poisoning + PQC + Combined Trust (Cosine + Loss)
+Geometric mean combination of cosine similarity and loss degradation trust.
+
+### Experiment 13: Data Poisoning + PQC + OptiGradTrust (Sign Gate + Adaptive Alpha)
+Enhanced trust evaluation adding Sign Consistency Gate and Variance-Aware Adaptive Alpha.
+
+### Experiment 14: Data Poisoning + PQC + OptiGradTrust v4 (Sharpening + Trust-Gated Trim)
+Full OptiGradTrust v4 framework incorporating Score Sharpening, Self-Referential Norm baseline, and Trust-Gated Trimming.
+
+### Experiment 15: Multi-Seed Statistical Evaluation
+Rigorous statistical evaluation across multiple random seeds comparing **FedAvg** vs **OptiGradTrust v4** under identical initializations and data splits.
+
+- **Design**: 3 Scenarios (`clean`, `byzantine`, `labelflip`) × 2 Defenses (`fedavg`, `optigradtrust_v4`) × N Seeds (paired comparison).
+- **Attack Parameters**:
+  - `clean`: No attackers.
+  - `byzantine`: Sign-flip model poisoning (scale 10.0) on 3/10 clients.
+  - `labelflip`: 50% random label flipping on 3/10 clients.
+- **RNG Isolation**: Global seed sets model initialization and Dirichlet split; local `np.random.RandomState(seed)` ensures identical malicious client IDs and label flips between paired defense arms.
+- **Automated Outputs** (`results/exp15_multiseed/`):
+  - `summary_table.csv` / `summary_table.md`: Mean ± sample standard deviation (ddof=1) of final and last-5 round accuracy, plus min/max across seeds.
+  - `paired_comparison.csv` / `paired_comparison.md`: Paired differences (OptiGradTrust v4 minus FedAvg), 95% confidence intervals (Student's t), paired t-test p-value, Wilcoxon signed-rank p-value, Cohen's $d_z$ effect size, and win counts.
+  - Plots: `bar_chart.png` (accuracy with error bars), `accuracy_curves.png` (mean round-by-round trajectory with ±1 std ribbon), and `paired_diff.png` (per-seed accuracy delta).
+  - `results.json`: Full serialized numerical data and metadata.
+- **Checkpointing**: Every run uses unique run names `Exp15_<scenario>_<defense>_seed<seed>`, supporting safe checkpoint recovery and `--fresh` overrides.
+
+**Commands**:
+```bash
+# Smoke test (2 seeds, 2 rounds)
+python basecode.py --experiment 15 --quick
+
+# Full evaluation (5 seeds: 42, 43, 44, 45, 46; 50 rounds)
+python basecode.py --experiment 15
+
+# Custom seeds and rounds
+python basecode.py --experiment 15 --seeds 101 102 103 --rounds 30
+
+# Re-run analysis & plots anytime on completed runs
+python experiments_multiseed.py --analyze
+```
 
 ## Output
 
